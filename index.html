@@ -62,7 +62,7 @@ const MD=[
 
 const COUPONS={WELCOME10:{t:"percent",v:10,l:"10% Off",desc:"Flat 10% off on your order"},SKY50:{t:"flat",v:50,l:"₹50 Off",desc:"Flat ₹50 off any order"},FIRST20:{t:"percent",v:20,l:"20% Off",desc:"20% off for first-time guests"},FESTIVE15:{t:"percent",v:15,l:"15% Off",desc:"Seasonal festive discount"}};
 
-const gid=()=>Math.random().toString(36).substr(2,8);
+const gid=()=>"10000000-1000-4000-8000-100000000000".replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)});
 const fmt=(d)=>new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
 const playSound=()=>{try{const c=new(window.AudioContext||window.webkitAudioContext)();[880,1100,1320].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0.25,c.currentTime+i*0.18);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.18+0.2);o.start(c.currentTime+i*0.18);o.stop(c.currentTime+i*0.18+0.2)})}catch(e){}};
 
@@ -121,7 +121,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail}){
       React.createElement("p",{style:{color:"#9b8e7e",fontSize:14,lineHeight:1.6,marginBottom:24}},"Your order is being prepared. Delivery to Room "+room+" shortly."),
       React.createElement("div",{style:{background:"#12131a",borderRadius:18,padding:22,border:"1px solid #1f2028",marginBottom:24}},
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:14}},
-          React.createElement("div",null,React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Order"),React.createElement("div",{style:{color:"#dfc06e",fontSize:15,fontFamily:"monospace",marginTop:3}},"#"+thanks.id.toUpperCase())),
+          React.createElement("div",null,React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Order"),React.createElement("div",{style:{color:"#dfc06e",fontSize:15,fontFamily:"monospace",marginTop:3}},"#"+thanks.id.slice(0,8).toUpperCase())),
           React.createElement("div",{style:{textAlign:"right"}},React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Total"),React.createElement("div",{style:{color:"#c8a44e",fontSize:20,fontWeight:800,marginTop:3}},"₹"+thanks.total))
         ),
         React.createElement("div",{style:{display:"inline-block",background:thanks.paymentMethod==="PAID"?"#22c55e18":"#f59e0b18",color:thanks.paymentMethod==="PAID"?"#4ade80":"#fbbf24",fontSize:12,fontWeight:700,padding:"4px 14px",borderRadius:20,marginBottom:14}},thanks.paymentMethod==="PAID"?"💳 Paid Online":"🏨 Added to Room Bill"),
