@@ -62,8 +62,7 @@ const MD=[
 
 const COUPONS={WELCOME10:{t:"percent",v:10,l:"10% Off",desc:"Flat 10% off on your order"},SKY50:{t:"flat",v:50,l:"₹50 Off",desc:"Flat ₹50 off any order"},FIRST20:{t:"percent",v:20,l:"20% Off",desc:"20% off for first-time guests"},FESTIVE15:{t:"percent",v:15,l:"15% Off",desc:"Seasonal festive discount"}};
 
-const gid=()=>"10000000-1000-4000-8000-100000000000".replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)});
-const fmt=(d)=>new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+
 const playSound=()=>{try{const c=new(window.AudioContext||window.webkitAudioContext)();[880,1100,1320].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0.25,c.currentTime+i*0.18);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.18+0.2);o.start(c.currentTime+i*0.18);o.stop(c.currentTime+i*0.18+0.2)})}catch(e){}};
 
 // ═══ WELCOME ═══
@@ -108,7 +107,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail}){
   const items=useMemo(()=>Object.entries(cart).map(([k,qty])=>{const[c,i]=k.split("-").map(Number);return{...MD[c].items[i],qty,k,ci:c,ii:i}}),[cart]);
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
-  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();const c=COUPONS[k];if(c){setApplied(c);setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
+  const tryCode=async(code)=>{const k=(code||coupon).toUpperCase().trim();const c=COUPONS[k];if(c){setApplied(c);setCoupon(k);setCErr("")}else{try{const r=await sb.from("custom_coupons").select("*").eq("code",k).eq("is_active",true).single();if(r.data&&r.data.used_count<r.data.max_uses){setApplied({t:r.data.type,v:Number(r.data.value),l:r.data.type==="percent"?r.data.value+"% Off":"₹"+r.data.value+" Off",desc:r.data.description||"Special discount"});setCoupon(k);setCErr("")}else if(r.data){setCErr("Coupon expired/exhausted");setApplied(null)}else{setCErr("Invalid code");setApplied(null)}}catch(e){setCErr("Invalid code");setApplied(null)}}};
   const order=(pay)=>{const pD=pay?Math.round((sub-disc)*0.05):0;const o={id:gid(),room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":"PAY_LATER",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
@@ -291,7 +290,7 @@ function Kitchen({orders,onUpdate}){
 }
 
 // ═══ CASH COUNTER ═══
-function Cash({orders,onUpdate}){
+function Cash({orders,onUpdate,onCollect,staff}){
   const[f,setF]=useState("ALL");
   const list=f==="ALL"?orders:orders.filter(o=>o.paymentMethod===f);
   const paid=orders.filter(o=>o.paymentMethod==="PAID").reduce((s,o)=>s+o.total,0);
@@ -322,7 +321,7 @@ function Cash({orders,onUpdate}){
       o.paymentMethod==="PAY_LATER"&&o.status==="DELIVERED"&&React.createElement("div",{style:{padding:"0 12px 10px"}},
         React.createElement("div",{style:{background:"#f59e0b0c",border:"1px solid #f59e0b20",borderRadius:8,padding:8,display:"flex",justifyContent:"space-between",alignItems:"center"}},
           React.createElement("span",{style:{fontSize:10,color:"#f59e0b"}},"⚠️ Unpaid → Reception"),
-          React.createElement("button",{onClick:()=>onUpdate(o.id,"DELIVERED","PAID"),style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 10px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},"Mark Paid")
+          React.createElement("button",{onClick:function(){if(onCollect)onCollect(o.id,"RESTAURANT",staff?staff.display_name:"Cashier");else onUpdate(o.id,"DELIVERED","PAID")},style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 10px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},"Mark Paid")
         )
       )
     ))
@@ -330,7 +329,7 @@ function Cash({orders,onUpdate}){
 }
 
 // ═══ ADMIN ═══
-function Admin({orders,avail,setAvail}){
+function Admin({orders,avail,setAvail,staff,collectPayment}){
   const[tab,setTab]=useState("dash");const[sq,setSq]=useState("");
   const paid=orders.filter(o=>o.paymentMethod==="PAID").reduce((s,o)=>s+o.total,0);
   const unpaid=orders.filter(o=>o.paymentMethod==="PAY_LATER").reduce((s,o)=>s+o.total,0);
@@ -340,7 +339,7 @@ function Admin({orders,avail,setAvail}){
   return React.createElement("div",{style:{minHeight:"100vh",background:"#08090d",color:"#e8e2d8",padding:16}},
     React.createElement("h1",{style:{fontFamily:"Georgia,serif",fontSize:24,color:"#c8a44e",fontWeight:400,marginBottom:14}},"✦ Admin Panel"),
     React.createElement("div",{style:{display:"flex",gap:5,marginBottom:16,flexWrap:"wrap"}},
-      [{id:"dash",l:"📊 Dashboard"},{id:"orders",l:"📋 Orders"},{id:"menu",l:"🍽️ Menu"},{id:"recep",l:"🏨 Reception"}].map(t=>React.createElement("button",{key:t.id,onClick:()=>setTab(t.id),style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"7px 14px",borderRadius:8,fontWeight:700,fontSize:11,cursor:"pointer"}},t.l))
+      [{id:"dash",l:"📊 Dashboard"},{id:"orders",l:"📋 Orders"},{id:"reports",l:"📈 Reports"},{id:"coupons",l:"🎟️ Coupons"},{id:"menu",l:"🍽️ Menu"},{id:"recep",l:"🏨 Reception"}].map(t=>React.createElement("button",{key:t.id,onClick:()=>setTab(t.id),style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"7px 14px",borderRadius:8,fontWeight:700,fontSize:11,cursor:"pointer"}},t.l))
     ),
     tab==="dash"&&React.createElement(React.Fragment,null,
       React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:20}},
@@ -386,6 +385,12 @@ function Admin({orders,avail,setAvail}){
             )})
         )})
     ),
+    tab==="reports"&&React.createElement(React.Fragment,null,
+      React.createElement(ReportsTab,{orders:orders})
+    ),
+    tab==="coupons"&&React.createElement(React.Fragment,null,
+      React.createElement(CouponsTab,{staff:staff})
+    ),
     tab==="recep"&&React.createElement(React.Fragment,null,
       React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:14,borderLeft:"3px solid #f59e0b"}},React.createElement("div",{style:{fontSize:15,fontWeight:700,color:"#f59e0b"}},"🏨 Unpaid Room Bills"),React.createElement("div",{style:{color:"#6b7280",fontSize:11}},"Settle at guest checkout")),
       unp.length===0&&React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"All clear!"),
@@ -403,6 +408,387 @@ function Admin({orders,avail,setAvail}){
   );
 }
 
+// === REPORTS TAB ===
+function ReportsTab({orders}){
+  var _df=useState(new Date().toISOString().slice(0,10)),dateFrom=_df[0],setDateFrom=_df[1];
+  var _dt=useState(new Date().toISOString().slice(0,10)),dateTo=_dt[0],setDateTo=_dt[1];
+  var _rd=useState([]),reportData=_rd[0],setReportData=_rd[1];
+  var _rl=useState(false),loading=_rl[0],setLoading=_rl[1];
+
+  async function loadReport(){
+    setLoading(true);
+    try{
+      var from=new Date(dateFrom);from.setHours(0,0,0,0);
+      var to=new Date(dateTo);to.setHours(23,59,59,999);
+      var r=await sb.from("orders").select("*").gte("created_at",from.toISOString()).lte("created_at",to.toISOString()).order("created_at",{ascending:true});
+      if(r.data){
+        var withItems=[];
+        for(var i=0;i<r.data.length;i++){
+          var o=r.data[i];
+          var ir=await sb.from("order_items").select("*").eq("order_id",o.id);
+          withItems.push({
+            id:o.id,room:o.room_number,guestName:o.guest_name,total:Number(o.total),
+            paymentMethod:o.payment_method,status:o.order_status,
+            collectionSource:o.collection_source,collectedBy:o.collected_by,
+            time:new Date(o.created_at),couponCode:o.coupon_code,couponDiscount:Number(o.coupon_discount||0),
+            items:(ir.data||[]).map(function(x){return{name:x.item_name,qty:x.quantity,price:Number(x.unit_price)}})
+          });
+        }
+        setReportData(withItems);
+      }
+    }catch(e){console.error("Report error:",e)}
+    setLoading(false);
+  }
+
+  var totalRevenue=reportData.reduce(function(s,o){return s+o.total},0);
+  var paidOnline=reportData.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var paidRestaurant=reportData.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
+  var paidReception=reportData.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var pendingReception=reportData.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
+  var totalOrders=reportData.length;
+  var totalCouponDisc=reportData.reduce(function(s,o){return s+o.couponDiscount},0);
+
+  // Group by date
+  var byDate={};
+  reportData.forEach(function(o){
+    var d=o.time.toISOString().slice(0,10);
+    if(!byDate[d])byDate[d]={orders:0,revenue:0,restaurant:0,reception:0,pending:0};
+    byDate[d].orders++;
+    byDate[d].revenue+=o.total;
+    if(o.collectionSource==="RESTAURANT")byDate[d].restaurant+=o.total;
+    else if(o.collectionSource==="RECEPTION")byDate[d].reception+=o.total;
+    else if(o.paymentMethod==="PAY_LATER")byDate[d].pending+=o.total;
+  });
+
+  return React.createElement("div",null,
+    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:12}},"📈 Day-Wise Reports"),
+    // Date Pickers
+    React.createElement("div",{style:{display:"flex",gap:8,marginBottom:14,alignItems:"center",flexWrap:"wrap"}},
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"FROM"),
+        React.createElement("input",{type:"date",value:dateFrom,onChange:function(e){setDateFrom(e.target.value)},style:{background:"#111318",border:"1px solid #1a1f2e",borderRadius:6,padding:"6px 10px",fontSize:12,color:"#e8e2d8"}})
+      ),
+      React.createElement("div",null,
+        React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"TO"),
+        React.createElement("input",{type:"date",value:dateTo,onChange:function(e){setDateTo(e.target.value)},style:{background:"#111318",border:"1px solid #1a1f2e",borderRadius:6,padding:"6px 10px",fontSize:12,color:"#e8e2d8"}})
+      ),
+      React.createElement("button",{onClick:loadReport,disabled:loading,style:{background:"#c8a44e",color:"#08090d",border:"none",padding:"8px 18px",borderRadius:6,fontWeight:700,fontSize:12,cursor:"pointer",marginTop:12}},loading?"Loading...":"🔍 Load Report")
+    ),
+    // Quick buttons
+    React.createElement("div",{style:{display:"flex",gap:4,marginBottom:16}},
+      ["Today","Yesterday","This Week","This Month"].map(function(label){
+        return React.createElement("button",{key:label,onClick:function(){
+          var now=new Date(),d;
+          if(label==="Today"){d=now.toISOString().slice(0,10);setDateFrom(d);setDateTo(d)}
+          else if(label==="Yesterday"){d=new Date(now-86400000).toISOString().slice(0,10);setDateFrom(d);setDateTo(d)}
+          else if(label==="This Week"){d=new Date(now-now.getDay()*86400000).toISOString().slice(0,10);setDateFrom(d);setDateTo(now.toISOString().slice(0,10))}
+          else{d=new Date(now.getFullYear(),now.getMonth(),1).toISOString().slice(0,10);setDateFrom(d);setDateTo(now.toISOString().slice(0,10))}
+        },style:{background:"#111318",color:"#9ca3af",border:"1px solid #1a1f2e",padding:"4px 10px",borderRadius:5,fontSize:9,cursor:"pointer"}},label)
+      })
+    ),
+    reportData.length>0?React.createElement(React.Fragment,null,
+      // Summary Cards
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:16}},
+        [{l:"Total Revenue",v:"₹"+totalRevenue,c:"#c8a44e"},{l:"Orders",v:totalOrders,c:"#60a5fa"},{l:"Paid at Restaurant",v:"₹"+paidRestaurant,c:"#22c55e"},{l:"Collected by Reception",v:"₹"+paidReception,c:"#8b5cf6"},{l:"Pending from Reception",v:"₹"+pendingReception,c:"#f59e0b"},{l:"Coupon Discounts",v:"₹"+totalCouponDisc,c:"#ef4444"}].map(function(s,i){
+          return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid "+s.c}},
+            React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},s.l),
+            React.createElement("div",{style:{fontSize:18,fontWeight:800,color:s.c,marginTop:2}},s.v)
+          )
+        })
+      ),
+      // Day-wise breakdown
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:14}},
+        React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",marginBottom:10}},"Day-Wise Breakdown"),
+        Object.entries(byDate).sort().map(function(entry){
+          var date=entry[0],d=entry[1];
+          return React.createElement("div",{key:date,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1a1f2e",flexWrap:"wrap",gap:4}},
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#f2ede4"}},new Date(date+"T12:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short"})),
+              React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},d.orders+" orders")
+            ),
+            React.createElement("div",{style:{display:"flex",gap:8,fontSize:10}},
+              React.createElement("span",{style:{color:"#22c55e"}},"Rest: ₹"+d.restaurant),
+              React.createElement("span",{style:{color:"#8b5cf6"}},"Recep: ₹"+d.reception),
+              d.pending>0?React.createElement("span",{style:{color:"#f59e0b"}},"Pending: ₹"+d.pending):null
+            ),
+            React.createElement("div",{style:{fontWeight:800,color:"#c8a44e",fontSize:14}},"₹"+d.revenue)
+          )
+        })
+      ),
+      // Order details
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14}},
+        React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",marginBottom:10}},"All Orders ("+reportData.length+")"),
+        reportData.slice().reverse().map(function(o){
+          return React.createElement("div",{key:o.id,style:{padding:"8px 0",borderBottom:"1px solid #1a1f2e"}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+              React.createElement("div",null,
+                React.createElement("span",{style:{fontWeight:700,fontSize:12}},"Room "+o.room),
+                React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName),
+                React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},fmt(o.time)+" • #"+o.id.slice(0,8))
+              ),
+              React.createElement("div",{style:{textAlign:"right"}},
+                React.createElement("div",{style:{fontWeight:800,color:"#c8a44e",fontSize:13}},"₹"+o.total),
+                React.createElement("div",{style:{fontSize:8,color:o.collectionSource==="RECEPTION"?"#8b5cf6":o.collectionSource==="RESTAURANT"?"#22c55e":"#f59e0b",fontWeight:600}},
+                  o.collectionSource?("✅ "+(o.collectionSource==="RECEPTION"?"Reception":"Restaurant")+(o.collectedBy?" ("+o.collectedBy+")":"")):"⏳ Pending"
+                )
+              )
+            ),
+            o.couponCode?React.createElement("div",{style:{fontSize:9,color:"#ef4444",marginTop:2}},"🎟️ Coupon: "+o.couponCode+" (−₹"+o.couponDiscount+")"):null
+          )
+        })
+      )
+    ):React.createElement("div",{style:{textAlign:"center",padding:40,color:"#4b5563"}},"Select dates and click Load Report")
+  );
+}
+
+// === COUPONS TAB ===
+function CouponsTab({staff}){
+  var _cc=useState([]),coupons=_cc[0],setCoupons=_cc[1];
+  var _cu=useState([]),usage=_cu[0],setUsage=_cu[1];
+  var _nc=useState(""),newCode=_nc[0],setNewCode=_nc[1];
+  var _nt=useState("percent"),newType=_nt[0],setNewType=_nt[1];
+  var _nv=useState(""),newVal=_nv[0],setNewVal=_nv[1];
+  var _nd=useState(""),newDesc=_nd[0],setNewDesc=_nd[1];
+  var _nm=useState("1"),newMax=_nm[0],setNewMax=_nm[1];
+  var _ng=useState(""),newGuest=_ng[0],setNewGuest=_ng[1];
+  var _nr=useState(""),newRoom=_nr[0],setNewRoom=_nr[1];
+  var _err=useState(""),err=_err[0],setErr=_err[1];
+  var _ok=useState(""),ok=_ok[0],setOk=_ok[1];
+  var _view=useState("create"),view=_view[0],setView=_view[1];
+
+  useEffect(function(){loadCoupons();loadUsage()},[]);
+
+  async function loadCoupons(){
+    var r=await sb.from("custom_coupons").select("*").order("created_at",{ascending:false});
+    if(r.data)setCoupons(r.data);
+  }
+  async function loadUsage(){
+    var r=await sb.from("coupon_usage").select("*").order("used_at",{ascending:false}).limit(50);
+    if(r.data)setUsage(r.data);
+  }
+
+  async function createCoupon(){
+    if(!newCode.trim())return setErr("Enter coupon code");
+    if(!newVal)return setErr("Enter discount value");
+    setErr("");setOk("");
+    try{
+      var r=await sb.from("custom_coupons").insert({
+        code:newCode.toUpperCase().trim(),type:newType,value:Number(newVal),
+        description:newDesc||null,max_uses:Number(newMax)||1,
+        created_by:staff?staff.display_name:"Admin",
+        assigned_to_guest:newGuest||null,assigned_to_room:newRoom||null,
+        is_active:true
+      });
+      if(r.error){setErr(r.error.message||"Failed");return}
+      setOk("Coupon "+newCode.toUpperCase()+" created!");
+      setNewCode("");setNewVal("");setNewDesc("");setNewGuest("");setNewRoom("");setNewMax("1");
+      loadCoupons();
+    }catch(e){setErr("Creation failed")}
+  }
+
+  async function toggleCoupon(id,active){
+    await sb.from("custom_coupons").update({is_active:!active}).eq("id",id);
+    loadCoupons();
+  }
+
+  return React.createElement("div",null,
+    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:12}},"🎟️ Custom Coupons"),
+    React.createElement("div",{style:{display:"flex",gap:4,marginBottom:14}},
+      ["create","active","usage"].map(function(v){
+        return React.createElement("button",{key:v,onClick:function(){setView(v)},style:{background:view===v?"#c8a44e":"#111318",color:view===v?"#000":"#9ca3af",border:"none",padding:"6px 12px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},v==="create"?"➕ Create":v==="active"?"📋 Active ("+coupons.filter(function(c){return c.is_active}).length+")":"📊 Usage Log")
+      })
+    ),
+    // Create Coupon
+    view==="create"?React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:16,border:"1px solid #1a1f2e"}},
+      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",marginBottom:12}},"Create One-Time Coupon"),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"COUPON CODE *"),
+          React.createElement("input",{value:newCode,onChange:function(e){setNewCode(e.target.value.toUpperCase());setErr("")},placeholder:"e.g. VIP100",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none",textTransform:"uppercase"}})
+        ),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"TYPE"),
+          React.createElement("select",{value:newType,onChange:function(e){setNewType(e.target.value)},style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4"}},
+            React.createElement("option",{value:"percent"},"% Percentage"),
+            React.createElement("option",{value:"flat"},"₹ Flat Amount")
+          )
+        )
+      ),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"VALUE *"),
+          React.createElement("input",{value:newVal,onChange:function(e){setNewVal(e.target.value.replace(/\D/g,""))},placeholder:newType==="percent"?"e.g. 15":"e.g. 100",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        ),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"MAX USES"),
+          React.createElement("input",{value:newMax,onChange:function(e){setNewMax(e.target.value.replace(/\D/g,""))},placeholder:"1",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        )
+      ),
+      React.createElement("div",{style:{marginBottom:8}},
+        React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"DESCRIPTION"),
+        React.createElement("input",{value:newDesc,onChange:function(e){setNewDesc(e.target.value)},placeholder:"e.g. Special discount for Mr. Sharma",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+      ),
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"GUEST NAME (optional)"),
+          React.createElement("input",{value:newGuest,onChange:function(e){setNewGuest(e.target.value)},placeholder:"e.g. Mr. Sharma",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        ),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"ROOM (optional)"),
+          React.createElement("input",{value:newRoom,onChange:function(e){setNewRoom(e.target.value)},placeholder:"e.g. 301",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        )
+      ),
+      err?React.createElement("div",{style:{color:"#f87171",fontSize:11,marginBottom:8}},err):null,
+      ok?React.createElement("div",{style:{color:"#4ade80",fontSize:11,marginBottom:8}},ok):null,
+      React.createElement("button",{onClick:createCoupon,style:{width:"100%",background:"linear-gradient(135deg,#c8a44e,#a6832a)",color:"#08090d",border:"none",padding:12,borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}},"Create Coupon")
+    ):null,
+    // Active Coupons
+    view==="active"?React.createElement("div",null,
+      coupons.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No custom coupons yet"):null,
+      coupons.map(function(c){
+        var exhausted=c.used_count>=c.max_uses;
+        return React.createElement("div",{key:c.id,style:{background:"#111318",borderRadius:8,padding:"10px 12px",marginBottom:6,border:"1px solid "+(c.is_active&&!exhausted?"#c8a44e20":"#ef444420"),opacity:c.is_active&&!exhausted?1:0.6}},
+          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            React.createElement("div",null,
+              React.createElement("span",{style:{fontFamily:"monospace",fontSize:14,fontWeight:800,color:c.is_active?"#c8a44e":"#6b7280",letterSpacing:1}},c.code),
+              React.createElement("span",{style:{fontSize:10,color:"#6b7280",marginLeft:6}},c.type==="percent"?c.value+"% off":"₹"+c.value+" off"),
+              React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:2}},c.description||"No description"),
+              c.assigned_to_guest?React.createElement("div",{style:{fontSize:9,color:"#8b5cf6"}},"👤 "+c.assigned_to_guest+(c.assigned_to_room?" (Room "+c.assigned_to_room+")":"")):null,
+              React.createElement("div",{style:{fontSize:9,color:exhausted?"#ef4444":"#6b7280",marginTop:2}},"Used: "+c.used_count+"/"+c.max_uses+(exhausted?" — EXHAUSTED":"")+" • By: "+(c.created_by||"Admin"))
+            ),
+            React.createElement("button",{onClick:function(){toggleCoupon(c.id,c.is_active)},style:{background:c.is_active?"#ef444418":"#22c55e18",color:c.is_active?"#ef4444":"#22c55e",border:"1px solid "+(c.is_active?"#ef444430":"#22c55e30"),padding:"4px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}},c.is_active?"Disable":"Enable")
+          )
+        )
+      })
+    ):null,
+    // Usage Log
+    view==="usage"?React.createElement("div",null,
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#c8a44e",marginBottom:8}},"Recent Coupon Usage"),
+      usage.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No usage yet"):null,
+      usage.map(function(u){
+        return React.createElement("div",{key:u.id,style:{background:"#111318",borderRadius:6,padding:"8px 10px",marginBottom:4,border:"1px solid #1a1f2e",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+          React.createElement("div",null,
+            React.createElement("span",{style:{fontFamily:"monospace",fontSize:11,fontWeight:700,color:"#c8a44e"}},u.coupon_code),
+            React.createElement("span",{style:{fontSize:10,color:"#6b7280",marginLeft:6}},"• "+u.guest_name+" (Room "+u.room_number+")"),
+            React.createElement("div",{style:{fontSize:9,color:"#5e5447"}},new Date(u.used_at).toLocaleString("en-IN"))
+          ),
+          React.createElement("span",{style:{color:"#ef4444",fontWeight:700,fontSize:12}},"−₹"+u.discount_amount)
+        )
+      })
+    ):null
+  );
+}
+
+// Also need to make custom coupons work in guest menu
+// Update COUPONS check to also search custom_coupons table
+var originalCOUPONS=Object.assign({},COUPONS);
+
+// === LOGIN SCREEN ===
+function LoginScreen({onLogin,panelType}){
+  var _u=useState(""),user=_u[0],setUser=_u[1];
+  var _p=useState(""),pin=_p[0],setPin=_p[1];
+  var _e=useState(""),err=_e[0],setErr=_e[1];
+  var _l=useState(false),loading=_l[0],setLoading=_l[1];
+  var titles={admin:"⚙️ Admin Panel",cash:"💰 Cash Counter",reception:"🏨 Reception"};
+
+  async function doLogin(){
+    if(!user.trim()||!pin.trim())return setErr("Enter username & PIN");
+    setLoading(true);setErr("");
+    try{
+      var r=await sb.from("staff").select("*").eq("username",user.trim().toLowerCase()).eq("pin",pin.trim()).eq("is_active",true).single();
+      if(r.error||!r.data){setErr("Invalid credentials");setLoading(false);return}
+      var allowed={admin:["admin"],cash:["admin","cashier"],reception:["admin","reception"]};
+      if(allowed[panelType]&&allowed[panelType].indexOf(r.data.role)===-1){setErr("No access to this panel");setLoading(false);return}
+      onLogin(r.data);
+    }catch(e){setErr("Login failed");setLoading(false)}
+  }
+
+  return React.createElement("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
+    React.createElement("div",{style:{width:"100%",maxWidth:360,textAlign:"center"}},
+      React.createElement("div",{style:{fontSize:42,marginBottom:10}},"✦"),
+      React.createElement("div",{style:{fontFamily:"Georgia,serif",fontSize:24,color:"#c8a44e",marginBottom:4}},"7th Sky"),
+      React.createElement("div",{style:{fontSize:12,color:"#5e5447",letterSpacing:3,marginBottom:28}},titles[panelType]||"Login"),
+      React.createElement("div",{style:{background:"rgba(200,164,78,0.04)",borderRadius:18,padding:"24px 20px",border:"1px solid rgba(200,164,78,0.1)"}},
+        React.createElement("div",{style:{marginBottom:14}},
+          React.createElement("input",{value:user,onChange:function(e){setUser(e.target.value);setErr("")},placeholder:"Username",style:{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:10,padding:"13px 14px",fontSize:14,color:"#f2ede4",outline:"none"}})
+        ),
+        React.createElement("div",{style:{marginBottom:16}},
+          React.createElement("input",{value:pin,onChange:function(e){setPin(e.target.value.replace(/\D/g,"").slice(0,6));setErr("")},placeholder:"PIN",type:"password",inputMode:"numeric",style:{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:10,padding:"13px 14px",fontSize:14,color:"#f2ede4",outline:"none"}})
+        ),
+        err?React.createElement("div",{style:{color:"#f87171",fontSize:12,marginBottom:10}},err):null,
+        React.createElement("button",{onClick:doLogin,disabled:loading,style:{width:"100%",background:"linear-gradient(135deg,#c8a44e,#a6832a)",color:"#08090d",border:"none",padding:14,borderRadius:12,fontSize:15,fontWeight:700,cursor:"pointer",opacity:loading?0.6:1}},loading?"Verifying...":"Login →")
+      ),
+      React.createElement("div",{style:{marginTop:20,fontSize:10,color:"#5e5447"}},"Authorized staff only")
+    )
+  );
+}
+
+// === RECEPTION PANEL ===
+function Reception({orders,onCollect,staff}){
+  var _d=useState(""),dateF=_d[0],setDateF=_d[1];
+  var today=new Date().toISOString().slice(0,10);
+  var unpaid=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&o.status!=="CANCELLED"&&(!o.collectionSource)});
+  var collected=orders.filter(function(o){return o.collectionSource==="RECEPTION"});
+  var totalPending=unpaid.reduce(function(s,o){return s+o.total},0);
+  var totalCollected=collected.reduce(function(s,o){return s+o.total},0);
+
+  return React.createElement("div",{style:{minHeight:"100vh",background:"#08090d",color:"#e8e2d8",padding:16}},
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
+      React.createElement("div",null,
+        React.createElement("h1",{style:{fontSize:20,fontWeight:800,color:"#8b5cf6"}},"🏨 Reception Desk"),
+        React.createElement("div",{style:{color:"#6b7280",fontSize:11}},"Logged in: "+staff.display_name)
+      ),
+      React.createElement("div",{style:{fontSize:10,color:"#5e5447"}},today)
+    ),
+    // Stats
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}},
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,borderLeft:"3px solid #f59e0b"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},"Pending"),
+        React.createElement("div",{style:{color:"#f59e0b",fontSize:22,fontWeight:800}},"₹"+totalPending)
+      ),
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,borderLeft:"3px solid #22c55e"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},"Collected Today"),
+        React.createElement("div",{style:{color:"#22c55e",fontSize:22,fontWeight:800}},"₹"+totalCollected)
+      )
+    ),
+    // Pending Orders
+    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#f59e0b",marginBottom:10}},"⏳ Pending Collection ("+unpaid.length+" orders)"),
+    unpaid.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"All payments collected! ✅"):null,
+    unpaid.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid #f59e0b18",marginBottom:8,overflow:"hidden"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:"#f59e0b06"}},
+        React.createElement("div",null,
+          React.createElement("span",{style:{fontWeight:800,fontSize:14,color:"#f59e0b"}},"🚪 Room "+o.room),
+          React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:6}},"• "+o.guestName)
+        ),
+        React.createElement("span",{style:{fontWeight:800,fontSize:16,color:"#f59e0b"}},"₹"+o.total)
+      ),
+      React.createElement("div",{style:{padding:"6px 12px"}},
+        o.items.map(function(it,i){return React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},
+          React.createElement("span",null,it.name+" × "+it.qty),
+          React.createElement("span",{style:{color:"#c8a44e"}},"₹"+it.price*it.qty)
+        )}),
+        React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:6,paddingTop:6,fontSize:10,color:"#6b7280"}},"Order #"+o.id.slice(0,8)+" • "+fmt(o.time))
+      ),
+      React.createElement("div",{style:{padding:"8px 12px"}},
+        React.createElement("button",{onClick:function(){onCollect(o.id,"RECEPTION",staff.display_name)},style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"11px",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}},"✅ Payment Collected — ₹"+o.total)
+      )
+    )}),
+    // Collected Today
+    collected.length>0?React.createElement("div",null,
+      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e",margin:"20px 0 10px"}},"✅ Collected Today ("+collected.length+")"),
+      collected.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:"8px 12px",marginBottom:4,border:"1px solid #22c55e15",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        React.createElement("div",null,
+          React.createElement("span",{style:{fontSize:12,fontWeight:600}},"Room "+o.room),
+          React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName),
+          React.createElement("div",{style:{fontSize:9,color:"#4ade80"}},"Collected by: "+(o.collectedBy||"Reception"))
+        ),
+        React.createElement("span",{style:{color:"#22c55e",fontWeight:800,fontSize:14}},"₹"+o.total)
+      )})
+    ):null
+  );
+}
+
+
 // === SUPABASE CLIENT ===
 var SUPA_URL="https://tbbpfdjakaiigtympkfw.supabase.co";
 var SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRiYnBmZGpha2FpaWd0eW1wa2Z3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MzUzNTIsImV4cCI6MjA4ODIxMTM1Mn0.Nozc33WvRVfNkKMph7yIfsehCI6A67eHi30HO03rkwI";
@@ -415,12 +801,16 @@ function App(){
   var _a=useState({}),avail=_a[0],setAvail=_a[1];
   var _d=useState(false),dbReady=_d[0],setDbReady=_d[1];
   var _e=useState(null),dbError=_e[0],setDbError=_e[1];
+  var _st=useState(null),staff=_st[0],setStaff=_st[1];
   var room=initialRoom;
   var _g=useState(""),gName=_g[0],setGN=_g[1];
   var _p=useState(""),gPhone=_p[0],setGP=_p[1];
   var _w=useState(initialPanel!=="guest"),welcomed=_w[0],setW=_w[1];
 
-  // Load from Supabase on mount + realtime subscriptions
+  // Panels requiring login
+  var needsLogin=panel==="admin"||panel==="cash"||panel==="reception";
+
+  // Load from Supabase
   useEffect(function(){
     async function init(){
       try{
@@ -436,11 +826,11 @@ function App(){
             instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount),
             couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount),total:Number(o.total),
             paymentMethod:o.payment_method,status:o.order_status,time:new Date(o.created_at),
+            collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,
             items:(ir.data||[]).map(function(i){return{name:i.item_name,qty:i.quantity,price:Number(i.unit_price)}})
           });
         }
         setOrders(formatted);
-
         // Load availability
         var mr=await sb.from("menu_items").select("id,category_id,is_available,availability_note,display_order").order("category_id").order("display_order");
         var av={};
@@ -448,9 +838,8 @@ function App(){
           var grouped={};
           mr.data.forEach(function(mi){if(!grouped[mi.category_id])grouped[mi.category_id]=[];grouped[mi.category_id].push(mi)});
           Object.entries(grouped).forEach(function(entry){
-            var catId=entry[0],items=entry[1];
-            items.forEach(function(mi,idx){
-              if(!mi.is_available)av[(Number(catId)-1)+"-"+idx]={note:mi.availability_note||""};
+            entry[1].forEach(function(mi,idx){
+              if(!mi.is_available)av[(Number(entry[0])-1)+"-"+idx]={note:mi.availability_note||""};
             });
           });
         }
@@ -458,15 +847,14 @@ function App(){
         setDbReady(true);
       }catch(e){
         console.error("DB error:",JSON.stringify(e));
-        var msg=e.message||e.details||e.hint||(typeof e==="object"?JSON.stringify(e):String(e));
-        setDbError(msg);
+        setDbError(typeof e==="object"?JSON.stringify(e):String(e));
         setDbReady(true);
       }
     }
     init();
 
-    // Realtime
-    var orderSub=sb.channel("orders-rt")
+    // Realtime subscriptions
+    var orderSub=sb.channel("orders-rt-v2")
       .on("postgres_changes",{event:"INSERT",schema:"public",table:"orders"},async function(payload){
         var o=payload.new;
         var ir=await sb.from("order_items").select("*").eq("order_id",o.id);
@@ -475,16 +863,18 @@ function App(){
           instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount),
           couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount),total:Number(o.total),
           paymentMethod:o.payment_method,status:o.order_status,time:new Date(o.created_at),
+          collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,
           items:(ir.data||[]).map(function(i){return{name:i.item_name,qty:i.quantity,price:Number(i.unit_price)}})
         };
         setOrders(function(prev){if(prev.find(function(x){return x.id===o.id}))return prev;playSound();return prev.concat([newO])});
       })
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"orders"},function(payload){
         var o=payload.new;
-        setOrders(function(prev){return prev.map(function(x){return x.id===o.id?Object.assign({},x,{status:o.order_status,paymentMethod:o.payment_method}):x})});
+        setOrders(function(prev){return prev.map(function(x){
+          return x.id===o.id?Object.assign({},x,{status:o.order_status,paymentMethod:o.payment_method,collectionSource:o.collection_source,collectedBy:o.collected_by}):x
+        })});
       })
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"menu_items"},function(){
-        // Reload availability
         sb.from("menu_items").select("id,category_id,is_available,availability_note,display_order").order("category_id").order("display_order").then(function(r){
           var av={};if(!r.data)return;
           var grouped={};
@@ -501,7 +891,7 @@ function App(){
     return function(){sb.removeChannel(orderSub)};
   },[]);
 
-  // Place order to Supabase
+  // Place order
   var placeOrder=useCallback(async function(o){
     setOrders(function(p){return p.concat([o])});playSound();
     try{
@@ -509,15 +899,28 @@ function App(){
         id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,
         instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,
         coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,
-        payment_method:o.paymentMethod,order_status:"NEW"
+        payment_method:o.paymentMethod,order_status:"NEW",
+        collection_source:o.paymentMethod==="PAID"?"RESTAURANT":null,
+        collected_by:o.paymentMethod==="PAID"?"Online Payment":null
       });
       await sb.from("order_items").insert(o.items.map(function(i){return{
         order_id:o.id,item_name:i.name,quantity:i.qty,unit_price:i.price,line_total:i.price*i.qty
       }}));
+      // Log coupon usage
+      if(o.couponCode&&o.couponDiscount>0){
+        await sb.from("coupon_usage").insert({
+          coupon_code:o.couponCode,order_id:o.id,guest_name:o.guestName,
+          guest_phone:o.guestPhone,room_number:o.room,discount_amount:o.couponDiscount
+        });
+        // Increment used_count on custom_coupons
+        await sb.from("custom_coupons").update({used_count:sb.rpc?1:1}).eq("code",o.couponCode);
+        // Use raw SQL approach instead
+        await sb.rpc("increment_coupon_usage",{coupon_code_param:o.couponCode}).catch(function(){});
+      }
     }catch(e){console.error("Save failed:",e)}
   },[]);
 
-  // Update order status in Supabase
+  // Update status
   var updateStatus=useCallback(async function(id,st,pay){
     setOrders(function(p){return p.map(function(o){return o.id===id?Object.assign({},o,{status:st},pay?{paymentMethod:pay}:{}):o})});
     try{
@@ -526,7 +929,19 @@ function App(){
     }catch(e){console.error("Update failed:",e)}
   },[]);
 
-  // Update menu availability in Supabase
+  // Collect payment (from cashier or reception)
+  var collectPayment=useCallback(async function(id,source,collectorName){
+    setOrders(function(p){return p.map(function(o){return o.id===id?Object.assign({},o,{paymentMethod:"PAID",collectionSource:source,collectedBy:collectorName}):o})});
+    try{
+      await sb.from("orders").update({
+        payment_method:"PAID",payment_status:"PAID",
+        collection_source:source,collected_by:collectorName,
+        collected_at:new Date().toISOString()
+      }).eq("id",id);
+    }catch(e){console.error("Collection failed:",e)}
+  },[]);
+
+  // Update availability
   var setAvailSync=useCallback(function(fn){
     setAvail(function(prev){
       var nv=typeof fn==="function"?fn(prev):fn;
@@ -538,10 +953,7 @@ function App(){
           try{
             var r=await sb.from("menu_items").select("id").eq("category_id",catIdx+1).order("display_order").range(itemIdx,itemIdx);
             if(r.data&&r.data[0]){
-              await sb.from("menu_items").update({
-                is_available:!isOff,
-                availability_note:isOff?(nv[k].note||null):null
-              }).eq("id",r.data[0].id);
+              await sb.from("menu_items").update({is_available:!isOff,availability_note:isOff?(nv[k].note||null):null}).eq("id",r.data[0].id);
             }
           }catch(e){console.error("Avail error:",e)}
         }
@@ -550,21 +962,23 @@ function App(){
     });
   },[]);
 
-  // Loading screen
+  // Loading
   if(!dbReady)return React.createElement("div",{style:{minHeight:"100vh",background:"#08090d",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}},
     React.createElement("div",{style:{fontSize:42,marginBottom:16}},"✦"),
     React.createElement("div",{style:{color:"#c8a44e",fontSize:16,fontFamily:"Georgia,serif"}},"7th Sky"),
     React.createElement("div",{style:{color:"#5e5447",fontSize:12,marginTop:8}},"Connecting to kitchen...")
   );
 
-  // Show DB error if any (but still allow usage)
+  // Login required for admin/cash/reception
+  if(needsLogin&&!staff)return React.createElement(LoginScreen,{onLogin:setStaff,panelType:panel});
+
   if(dbError)console.warn("DB issue:",dbError);
 
   var isAdmin=initialPanel==="admin";
-  var panels=[{id:"guest",l:"📱 Guest",c:"#c8a44e"},{id:"kitchen",l:"👨‍🍳 Kitchen",c:"#f59e0b"},{id:"cash",l:"💰 Counter",c:"#60a5fa"},{id:"admin",l:"⚙️ Admin",c:"#8b5cf6"}];
+  var panels=[{id:"guest",l:"📱 Guest",c:"#c8a44e"},{id:"kitchen",l:"👨‍🍳 Kitchen",c:"#f59e0b"},{id:"cash",l:"💰 Counter",c:"#60a5fa"},{id:"reception",l:"🏨 Reception",c:"#8b5cf6"},{id:"admin",l:"⚙️ Admin",c:"#ef4444"}];
 
   var Nav=function(){return React.createElement("div",{style:{background:"#0a0a10",borderBottom:"1px solid #1a1b25",padding:"7px 10px",display:"flex",gap:4,overflowX:"auto",position:"sticky",top:0,zIndex:999}},
-    dbError?React.createElement("div",{style:{color:"#f59e0b",fontSize:9,padding:"4px 8px",background:"#f59e0b12",borderRadius:5,alignSelf:"center",marginRight:4}},"⚠ Offline"):null,
+    staff?React.createElement("div",{style:{color:"#4ade80",fontSize:8,padding:"4px 8px",background:"#4ade8010",borderRadius:5,alignSelf:"center",marginRight:4}},"👤 "+staff.display_name):null,
     panels.map(function(p){return React.createElement("button",{key:p.id,onClick:function(){setPanel(p.id);window.history.replaceState(null,"","?panel="+p.id+(p.id==="guest"?"&room="+room:""))},style:{background:panel===p.id?p.c:"#111318",color:panel===p.id?"#000":"#6b7280",border:"1px solid "+(panel===p.id?p.c:"#1a1f2e"),padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}},p.l)})
   )};
 
@@ -574,8 +988,9 @@ function App(){
     isAdmin?React.createElement(Nav):null,
     panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail}):null,
     panel==="kitchen"?React.createElement(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
-    panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus}):null,
-    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync}):null
+    panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
+    panel==="reception"?React.createElement(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
+    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync,staff:staff,collectPayment:collectPayment}):null
   );
 }
 
