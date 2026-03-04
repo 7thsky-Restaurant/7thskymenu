@@ -63,6 +63,8 @@ const MD=[
 const COUPONS={WELCOME10:{t:"percent",v:10,l:"10% Off",desc:"Flat 10% off on your order"},SKY50:{t:"flat",v:50,l:"₹50 Off",desc:"Flat ₹50 off any order"},FIRST20:{t:"percent",v:20,l:"20% Off",desc:"20% off for first-time guests"},FESTIVE15:{t:"percent",v:15,l:"15% Off",desc:"Seasonal festive discount"}};
 
 
+const gid=()=>"10000000-1000-4000-8000-100000000000".replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)});
+const fmt=(d)=>new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
 const playSound=()=>{try{const c=new(window.AudioContext||window.webkitAudioContext)();[880,1100,1320].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0.25,c.currentTime+i*0.18);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.18+0.2);o.start(c.currentTime+i*0.18);o.stop(c.currentTime+i*0.18+0.2)})}catch(e){}};
 
 // ═══ WELCOME ═══
@@ -100,6 +102,7 @@ function Welcome({room,onGo}){
 
 // ═══ GUEST MENU ═══
 function GuestMenu({onOrder,room,gName,gPhone,avail}){
+  avail=avail||{};
   const[cart,setCart]=useState({});const[cat,setCat]=useState(0);const[q,setQ]=useState("");const[showCart,setSC]=useState(false);const[coupon,setCoupon]=useState("");const[applied,setApplied]=useState(null);const[cErr,setCErr]=useState("");const[instr,setInstr]=useState("");const[thanks,setThanks]=useState(null);
   const listRef=useRef(null);
   const add=(c,i)=>{const k=c+"-"+i;if(avail[k])return;setCart(p=>({...p,[k]:(p[k]||0)+1}))};
@@ -107,7 +110,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail}){
   const items=useMemo(()=>Object.entries(cart).map(([k,qty])=>{const[c,i]=k.split("-").map(Number);return{...MD[c].items[i],qty,k,ci:c,ii:i}}),[cart]);
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
-  const tryCode=async(code)=>{const k=(code||coupon).toUpperCase().trim();const c=COUPONS[k];if(c){setApplied(c);setCoupon(k);setCErr("")}else{try{const r=await sb.from("custom_coupons").select("*").eq("code",k).eq("is_active",true).single();if(r.data&&r.data.used_count<r.data.max_uses){setApplied({t:r.data.type,v:Number(r.data.value),l:r.data.type==="percent"?r.data.value+"% Off":"₹"+r.data.value+" Off",desc:r.data.description||"Special discount"});setCoupon(k);setCErr("")}else if(r.data){setCErr("Coupon expired/exhausted");setApplied(null)}else{setCErr("Invalid code");setApplied(null)}}catch(e){setCErr("Invalid code");setApplied(null)}}};
+  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();const c=COUPONS[k];if(c){setApplied(c);setCoupon(k);setCErr("")}else{if(typeof sb!=="undefined"){sb.from("custom_coupons").select("*").eq("code",k).eq("is_active",true).single().then(function(r){if(r.data&&r.data.used_count<r.data.max_uses){setApplied({t:r.data.type,v:Number(r.data.value),l:r.data.type==="percent"?r.data.value+"% Off":"₹"+r.data.value+" Off",desc:r.data.description||"Special discount"});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}}).catch(function(){setCErr("Invalid code");setApplied(null)})}else{setCErr("Invalid code");setApplied(null)}}};
   const order=(pay)=>{const pD=pay?Math.round((sub-disc)*0.05):0;const o={id:gid(),room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":"PAY_LATER",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
