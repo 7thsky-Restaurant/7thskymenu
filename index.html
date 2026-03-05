@@ -549,6 +549,36 @@ function MenuEditor(){
     loadData();
   }
 
+  async function editCatName(id,oldName){
+    var newName=prompt("Rename category:",oldName);
+    if(!newName||newName.trim()===oldName)return;
+    await sb.from("menu_categories").update({name:newName.toUpperCase().trim()}).eq("id",id);
+    setMsg("✅ Category renamed to '"+newName.toUpperCase().trim()+"'");loadData();
+  }
+
+  async function editCatIcon(id,oldIcon){
+    var newIcon=prompt("Change icon emoji:",oldIcon);
+    if(!newIcon)return;
+    await sb.from("menu_categories").update({icon:newIcon.trim()}).eq("id",id);
+    loadData();
+  }
+
+  async function editItem(id,field,oldVal){
+    var labels={name:"item name",description:"description",price:"price"};
+    var newVal=prompt("Edit "+labels[field]+":",oldVal||"");
+    if(newVal===null||newVal===String(oldVal))return;
+    var upd={};
+    if(field==="price")upd.price=Number(newVal);
+    else upd[field]=newVal.trim();
+    await sb.from("menu_items").update(upd).eq("id",id);
+    setMsg("✅ Item updated");loadData();
+  }
+
+  async function toggleItemNew(id,current){
+    await sb.from("menu_items").update({is_new:!current}).eq("id",id);
+    loadData();
+  }
+
   if(loading)return React.createElement("div",{style:{color:"#5e5447",padding:20,textAlign:"center"}},"Loading menu from database...");
 
   return React.createElement("div",null,
@@ -585,7 +615,9 @@ function MenuEditor(){
           ),
           React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
             React.createElement("span",{style:{fontSize:11,color:"#6b7280"}},isOpen?"▼":"▶"),
-            React.createElement("button",{onClick:function(e){e.stopPropagation();deleteCat(c.id,c.name)},style:{background:"#ef444412",color:"#ef4444",border:"1px solid #ef444425",padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"🗑️ Delete")
+            React.createElement("button",{onClick:function(e){e.stopPropagation();editCatIcon(c.id,c.icon)},style:{background:"#60a5fa12",color:"#60a5fa",border:"1px solid #60a5fa25",padding:"3px 6px",borderRadius:5,fontSize:9,cursor:"pointer"}},c.icon),
+              React.createElement("button",{onClick:function(e){e.stopPropagation();editCatName(c.id,c.name)},style:{background:"#c8a44e12",color:"#c8a44e",border:"1px solid #c8a44e25",padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"✏️ Rename"),
+              React.createElement("button",{onClick:function(e){e.stopPropagation();deleteCat(c.id,c.name)},style:{background:"#ef444412",color:"#ef4444",border:"1px solid #ef444425",padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"🗑️ Delete")
           )
         ),
         // Items list (expanded)
@@ -612,14 +644,14 @@ function MenuEditor(){
             return React.createElement("div",{key:it.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #1a1f2e"}},
               React.createElement("div",{style:{flex:1,minWidth:0}},
                 React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4}},
-                  React.createElement("span",{style:{fontSize:12,fontWeight:600,color:"#e8e2d8"}},it.name),
-                  it.is_new?React.createElement("span",{style:{fontSize:7,background:"#f59e0b",color:"#000",padding:"1px 4px",borderRadius:3,fontWeight:800}},"NEW"):null,
+                  React.createElement("span",{onClick:function(){editItem(it.id,"name",it.name)},style:{fontSize:12,fontWeight:600,color:"#e8e2d8",cursor:"pointer",borderBottom:"1px dashed #333"}},it.name),
+                  React.createElement("button",{onClick:function(){toggleItemNew(it.id,it.is_new)},style:{fontSize:7,background:it.is_new?"#f59e0b":"#333",color:it.is_new?"#000":"#666",padding:"1px 4px",borderRadius:3,fontWeight:800,border:"none",cursor:"pointer"}},it.is_new?"NEW ✓":"NEW"),
                   !it.is_available?React.createElement("span",{style:{fontSize:7,background:"#ef4444",color:"#fff",padding:"1px 4px",borderRadius:3,fontWeight:800}},"OFF"):null
                 ),
-                React.createElement("div",{style:{fontSize:9,color:"#5e5447",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.description||"")
+                React.createElement("div",{onClick:function(){editItem(it.id,"description",it.description)},style:{fontSize:9,color:"#5e5447",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",cursor:"pointer",borderBottom:"1px dashed #222"}},it.description||"+ Add description")
               ),
               React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
-                React.createElement("span",{style:{fontSize:12,fontWeight:700,color:"#c8a44e"}},"₹"+it.price),
+                React.createElement("span",{onClick:function(){editItem(it.id,"price",it.price)},style:{fontSize:12,fontWeight:700,color:"#c8a44e",cursor:"pointer",borderBottom:"1px dashed #333"}},"₹"+it.price),
                 React.createElement("button",{onClick:function(){deleteItem(it.id,it.name)},style:{background:"#ef444410",color:"#ef4444",border:"none",padding:"3px 6px",borderRadius:4,fontSize:9,cursor:"pointer"}},"✕")
               )
             )
@@ -631,58 +663,56 @@ function MenuEditor(){
 }
 
 
-// === SETTLEMENT TAB ===
+
+// === SETTLEMENT TAB (with partial payments) ===
 function SettlementTab({orders,staff}){
   var _hist=useState([]),history=_hist[0],setHistory=_hist[1];
   var _loading=useState(false),loading=_loading[0],setLoading=_loading[1];
+  var _amt=useState(""),amt=_amt[0],setAmt=_amt[1];
+  var _from=useState(""),fromWho=_from[0],setFromWho=_from[1];
   var _notes=useState(""),notes=_notes[0],setNotes=_notes[1];
   var _msg=useState(""),msg=_msg[0],setMsg=_msg[1];
-  var _dateF=useState(new Date().toISOString().slice(0,10)),dateF=_dateF[0],setDateF=_dateF[1];
 
   useEffect(function(){loadHistory()},[]);
 
   async function loadHistory(){
-    var r=await sb.from("daily_settlements").select("*").order("settlement_date",{ascending:false}).limit(30);
+    var r=await sb.from("daily_settlements").select("*").order("created_at",{ascending:false}).limit(50);
     if(r.data)setHistory(r.data);
   }
 
-  // Calculate today's numbers from orders
   var today=new Date().toISOString().slice(0,10);
-  var todayOrders=orders;
 
-  // Direct to us (online pay + dine-in cash)
-  var directPaid=todayOrders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  // Collected by reception (they have our money)
-  var receptionCollected=todayOrders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  // Still pending at reception (guest chose pay later, reception hasn't collected yet)
-  var receptionPending=todayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
-  // Total business
-  var totalBusiness=todayOrders.reduce(function(s,o){return s+o.total},0);
-  // What reception owes us = collected by reception (not yet settled)
-  var receptionOwes=receptionCollected;
+  // Calculate today's numbers
+  var directPaid=orders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var receptionCollected=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var receptionPending=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
+  var totalBusiness=orders.reduce(function(s,o){return s+o.total},0);
 
-  // Reception orders detail
-  var receptionOrders=todayOrders.filter(function(o){return o.collectionSource==="RECEPTION"});
-  var pendingOrders=todayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
+  // Already settled today (from history)
+  var todaySettled=history.filter(function(h){return h.settlement_date===today}).reduce(function(s,h){return s+Number(h.reception_collected||0)},0);
 
-  async function settleNow(){
-    if(receptionOwes<=0){setMsg("Nothing to settle!");return}
+  // Balance = what reception collected - what they already paid us
+  var balance=receptionCollected-todaySettled;
+
+  var receptionOrders=orders.filter(function(o){return o.collectionSource==="RECEPTION"});
+  var pendingOrders=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
+
+  async function recordPayment(){
+    var amount=Number(amt);
+    if(!amount||amount<=0){setMsg("Enter a valid amount");return}
+    if(!fromWho.trim()){setMsg("Enter who gave the payment");return}
     setLoading(true);
     try{
       await sb.from("daily_settlements").insert({
         settlement_date:today,
         restaurant_collected:directPaid,
-        reception_collected:receptionCollected,
-        total_pending:receptionPending,
+        reception_collected:amount,
+        total_pending:Math.max(0,balance-amount),
         settled_by:staff?staff.display_name:"Admin",
-        notes:notes||"Daily settlement"
+        notes:"Received ₹"+amount+" from "+fromWho.trim()+(notes?" — "+notes:"")
       });
-      // Mark all reception-collected orders as settled
-      for(var i=0;i<receptionOrders.length;i++){
-        await sb.from("orders").update({settlement_status:"SETTLED_WITH_HOTEL",settlement_date:today}).eq("id",receptionOrders[i].id);
-      }
-      setMsg("✅ Settlement of ₹"+receptionOwes+" recorded! Reception amount cleared.");
-      setNotes("");loadHistory();
+      setMsg("✅ ₹"+amount+" received from "+fromWho.trim()+" recorded!");
+      setAmt("");setFromWho("");setNotes("");loadHistory();
     }catch(e){setMsg("Error: "+(e.message||"Failed"))}
     setLoading(false);
   }
@@ -690,82 +720,80 @@ function SettlementTab({orders,staff}){
   return React.createElement("div",null,
     React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:14}},"🏦 Daily Settlement with Reception"),
 
-    // Today's Summary Cards
-    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}},
-      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #c8a44e"}},
-        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Today's Total Business"),
-        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#c8a44e"}},"₹"+totalBusiness)
-      ),
-      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #22c55e"}},
-        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Direct to Us"),
-        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#22c55e"}},"₹"+directPaid),
-        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"Online + Dine-in cash")
-      ),
-      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #8b5cf6"}},
-        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Reception Collected"),
-        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#8b5cf6"}},"₹"+receptionCollected),
-        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"They owe us this")
-      ),
-      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #f59e0b"}},
-        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Guest Not Paid Yet"),
-        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#f59e0b"}},"₹"+receptionPending),
-        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"Still at reception")
-      )
+    // Summary Cards
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:16}},
+      [{l:"Total Business",v:"₹"+totalBusiness,c:"#c8a44e"},
+       {l:"Direct to Us",v:"₹"+directPaid,c:"#22c55e",sub:"Online + Dine-in"},
+       {l:"Reception Collected",v:"₹"+receptionCollected,c:"#8b5cf6",sub:"From room guests"},
+       {l:"Already Settled",v:"₹"+todaySettled,c:"#4ade80",sub:"Received from reception"},
+       {l:"Balance Due",v:"₹"+Math.max(0,balance),c:balance>0?"#f59e0b":"#22c55e",sub:balance>0?"Reception owes this":"All clear!"},
+       {l:"Guest Not Paid",v:"₹"+receptionPending,c:"#ef4444",sub:pendingOrders.length+" orders pending"}
+      ].map(function(s,i){return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid "+s.c}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},s.l),
+        React.createElement("div",{style:{fontSize:20,fontWeight:800,color:s.c}},s.v),
+        s.sub?React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},s.sub):null
+      )})
     ),
 
-    // Reception owes section
-    receptionOwes>0?React.createElement("div",{style:{background:"#8b5cf615",border:"2px solid #8b5cf640",borderRadius:12,padding:16,marginBottom:16}},
-      React.createElement("div",{style:{fontSize:16,fontWeight:800,color:"#8b5cf6",marginBottom:4}},"💰 Reception Owes You: ₹"+receptionOwes),
-      React.createElement("div",{style:{fontSize:11,color:"#8b5cf680",marginBottom:12}},"This is money collected by reception from room guests for your food orders"),
-      // List of reception-collected orders
-      receptionOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1a1f2e",fontSize:12}},
+    // Collect Payment Box
+    balance>0?React.createElement("div",{style:{background:"#8b5cf610",border:"2px solid #8b5cf630",borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement("div",{style:{fontSize:15,fontWeight:800,color:"#8b5cf6",marginBottom:4}},"💰 Reception Owes: ₹"+balance),
+      React.createElement("div",{style:{fontSize:10,color:"#8b5cf680",marginBottom:12}},"Enter the amount you received (can be partial)"),
+      // Amount input
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
         React.createElement("div",null,
-          React.createElement("span",{style:{fontWeight:600}},"Room "+o.room),
-          React.createElement("span",{style:{color:"#6b7280",marginLeft:5}},"• "+o.guestName+" • "+fmt(o.time)),
-          React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},o.items.map(function(i){return i.name+"×"+i.qty}).join(", "))
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"AMOUNT RECEIVED *"),
+          React.createElement("input",{value:amt,onChange:function(e){setAmt(e.target.value.replace(/[^\d]/g,""));setMsg("")},placeholder:"e.g. 800",inputMode:"numeric",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:16,fontWeight:700,color:"#4ade80",outline:"none"}})
         ),
-        React.createElement("span",{style:{fontWeight:800,color:"#8b5cf6"}},"₹"+o.total)
-      )}),
-      React.createElement("div",{style:{marginTop:12}},
-        React.createElement("input",{value:notes,onChange:function(e){setNotes(e.target.value)},placeholder:"Notes (e.g. Cash received from Mr. Sharma at reception)",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#f2ede4",outline:"none",marginBottom:8}}),
-        React.createElement("button",{onClick:settleNow,disabled:loading,style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:12,borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer",opacity:loading?0.6:1}},loading?"Settling...":"✅ Mark ₹"+receptionOwes+" as Received from Reception")
-      )
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"RECEIVED FROM *"),
+          React.createElement("input",{value:fromWho,onChange:function(e){setFromWho(e.target.value);setMsg("")},placeholder:"e.g. Mr. Sharma (Reception)",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        )
+      ),
+      React.createElement("div",{style:{marginBottom:10}},
+        React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"NOTES (optional)"),
+        React.createElement("input",{value:notes,onChange:function(e){setNotes(e.target.value)},placeholder:"e.g. Cash payment, UPI to account, etc.",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:12,color:"#f2ede4",outline:"none"}})
+      ),
+      amt?React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginBottom:8}},"After this: Balance will be ₹"+Math.max(0,balance-Number(amt||0))):null,
+      msg?React.createElement("div",{style:{color:msg.startsWith("✅")?"#4ade80":"#ef4444",fontSize:11,marginBottom:8}},msg):null,
+      React.createElement("button",{onClick:recordPayment,disabled:loading,style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:13,borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer",opacity:loading?0.6:1}},loading?"Recording...":"✅ Record Payment of ₹"+(amt||"0"))
     ):React.createElement("div",{style:{background:"#22c55e10",border:"1px solid #22c55e20",borderRadius:10,padding:16,marginBottom:16,textAlign:"center"}},
-      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e"}},"✅ No pending amount from Reception"),
-      React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginTop:4}},"All settled for today")
+      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e"}},"✅ All Settled with Reception!"),
+      React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginTop:4}},"No pending balance")
     ),
 
-    // Pending guest payments at reception
-    pendingOrders.length>0?React.createElement("div",{style:{background:"#f59e0b10",border:"1px solid #f59e0b20",borderRadius:10,padding:14,marginBottom:16}},
-      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Who Haven't Paid Yet (₹"+receptionPending+")"),
-      React.createElement("div",{style:{fontSize:10,color:"#f59e0b80",marginBottom:8}},"These guests chose 'Pay Later' — Reception should collect at checkout"),
+    // Reception orders detail
+    receptionOrders.length>0?React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:14}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#8b5cf6",marginBottom:8}},"📋 Orders Collected by Reception (₹"+receptionCollected+")"),
+      receptionOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
+        React.createElement("span",null,"Room "+o.room+" • "+o.guestName+" • "+fmt(o.time)),
+        React.createElement("span",{style:{fontWeight:700,color:"#8b5cf6"}},"₹"+o.total)
+      )})
+    ):null,
+
+    // Pending guest payments
+    pendingOrders.length>0?React.createElement("div",{style:{background:"#f59e0b08",border:"1px solid #f59e0b15",borderRadius:10,padding:14,marginBottom:14}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Not Paid Yet (₹"+receptionPending+")"),
       pendingOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
         React.createElement("span",null,"Room "+o.room+" • "+o.guestName+" • "+o.guestPhone),
         React.createElement("span",{style:{fontWeight:700,color:"#f59e0b"}},"₹"+o.total)
       )})
     ):null,
 
-    msg?React.createElement("div",{style:{background:msg.startsWith("✅")?"#4ade8012":"#ef444412",border:"1px solid "+(msg.startsWith("✅")?"#4ade8025":"#ef444425"),borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?"#4ade80":"#ef4444"}},msg):null,
-
     // Settlement History
-    React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",margin:"8px 0 10px"}},"📋 Settlement History"),
-    history.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:16}},"No settlements yet"):null,
-    history.map(function(h){return React.createElement("div",{key:h.id,style:{background:"#111318",borderRadius:8,padding:"10px 12px",marginBottom:6,border:"1px solid #22c55e12"}},
+    React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",margin:"8px 0 10px"}},"📋 Payment History"),
+    history.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:16}},"No payments recorded yet"):null,
+    history.map(function(h){return React.createElement("div",{key:h.id,style:{background:"#111318",borderRadius:8,padding:"10px 12px",marginBottom:5,border:"1px solid #22c55e10"}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
         React.createElement("div",null,
-          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#22c55e"}},new Date(h.settlement_date+"T12:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"})),
-          React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},"Settled by: "+(h.settled_by||"Admin"))
+          React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#22c55e"}},"₹"+h.reception_collected+" received"),
+          React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},new Date(h.created_at).toLocaleString("en-IN")+" • "+h.settled_by)
         ),
-        React.createElement("div",{style:{textAlign:"right"}},
-          React.createElement("div",{style:{fontSize:16,fontWeight:800,color:"#8b5cf6"}},"₹"+h.reception_collected),
-          React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"from Reception")
+        React.createElement("div",{style:{fontSize:10,color:"#6b7280",textAlign:"right"}},
+          React.createElement("div",null,h.settlement_date)
         )
       ),
-      React.createElement("div",{style:{display:"flex",gap:12,marginTop:6,fontSize:10,color:"#6b7280"}},
-        React.createElement("span",null,"Direct: ₹"+h.restaurant_collected),
-        React.createElement("span",null,"Pending: ₹"+h.total_pending)
-      ),
-      h.notes?React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginTop:3}},"📝 "+h.notes):null
+      h.notes?React.createElement("div",{style:{fontSize:10,color:"#9ca3af",marginTop:3}},"📝 "+h.notes):null
     )})
   );
 }
