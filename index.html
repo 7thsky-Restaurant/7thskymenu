@@ -90,7 +90,7 @@ function exportToExcel(data,filename){
 
 
 // ── Menu Data ──
-const MD=[
+var FALLBACK_MD=[
 {n:"BREAKFAST",i:"🌅",items:[{n:"Poha",d:"Flattened rice with peanuts & lime",p:99},{n:"Puri Bhaji",d:"Crispy puris with spiced potato gravy",p:149},{n:"Chole Bhature",d:"Fluffy bhatura with Punjabi chole",p:179,nw:1},{n:"Upma",d:"Savory semolina with vegetables",p:109},{n:"Sheera",d:"Sweet halwa with ghee & saffron",p:109},{n:"Bread Butter",d:"Toasted bread with salted butter",p:89},{n:"Bread Butter Jam",d:"Toast with butter & fruit preserve",p:99},{n:"Toast Butter",d:"Double-toasted bread with butter",p:99},{n:"Toast Butter Jam",d:"Crisp toast with butter & jam",p:109}]},
 {n:"SANDWICHES",i:"🥪",items:[{n:"Veg Sandwich",d:"Fresh veggies with green chutney",p:139},{n:"Veg Grill Sandwich",d:"Grilled with potato-veg filling",p:169},{n:"Veg Cheese Sandwich",d:"Fresh veggies with premium cheese",p:179},{n:"Veg Cheese Grill",d:"Grilled with melted cheese",p:199},{n:"Veg Club Sandwich",d:"Triple-layered with coleslaw",p:219},{n:"Toast Veg Club",d:"Toasted club with herb mayo",p:249},{n:"Toast Cheese Club",d:"Toasted club with extra cheese",p:259}]},
 {n:"PARATHAS",i:"🫓",items:[{n:"Aloo Paratha",d:"Potato stuffing with curd & pickle",p:169},{n:"Paneer Paratha",d:"Cottage cheese with green chili",p:219},{n:"Onion Paratha",d:"Spicy onion with amchur",p:169},{n:"Cheese Paratha",d:"Melted cheese with mild spices",p:199},{n:"Aloo Pyaaz Paratha",d:"Potato & crispy onion combo",p:179},{n:"Mix Veg Paratha",d:"Seasonal vegetables medley",p:199},{n:"7th Sky Special",d:"Chef's signature daily filling",p:149},{n:"Gobi Paratha",d:"Spiced cauliflower & herbs",p:119}]},
@@ -152,8 +152,8 @@ function Welcome({room,onGo}){
 }
 
 // ═══ GUEST MENU ═══
-function GuestMenu({onOrder,room,gName,gPhone,avail}){
-  avail=avail||{};
+function GuestMenu({onOrder,room,gName,gPhone,avail,menu}){
+  avail=avail||{};var MD=menu||FALLBACK_MD;
   const[cart,setCart]=useState({});const[cat,setCat]=useState(0);const[q,setQ]=useState("");const[showCart,setSC]=useState(false);const[coupon,setCoupon]=useState("");const[applied,setApplied]=useState(null);const[cErr,setCErr]=useState("");const[instr,setInstr]=useState("");const[thanks,setThanks]=useState(null);
   const listRef=useRef(null);
   const add=(c,i)=>{const k=c+"-"+i;const av=avail[k];if(av&&!(av.note&&isTimeAvailable(av.note)))return;setCart(p=>({...p,[k]:(p[k]||0)+1}))};
@@ -399,7 +399,8 @@ function Cash({orders,onUpdate,onCollect,staff}){
 
 
 // === ADMIN ===
-function Admin({orders,avail,setAvail,staff,collectPayment}){
+function Admin({orders,avail,setAvail,staff,collectPayment,menu}){
+  var MD=menu||FALLBACK_MD;
   const[tab,setTab]=useState("dash");const[sq,setSq]=useState("");
   const paid=orders.filter(o=>o.paymentMethod==="PAID").reduce((s,o)=>s+o.total,0);
   const unpaid=orders.filter(o=>o.paymentMethod==="PAY_LATER").reduce((s,o)=>s+o.total,0);
@@ -475,7 +476,20 @@ function Admin({orders,avail,setAvail,staff,collectPayment}){
         )})
     ),
     // Edit Menu (Add/Delete items & categories)
-    tab==="editmenu"&&React.createElement(MenuEditor,{})
+    tab==="editmenu"&&React.createElement(MenuEditor,{onMenuChange:function(){
+      // Reload menu from DB
+      sb.from("menu_categories").select("*").eq("is_active",true).order("display_order").then(function(cr){
+        sb.from("menu_items").select("*").order("category_id").order("display_order").then(function(ir){
+          if(cr.data&&ir.data){
+            var dbMenu=cr.data.map(function(cat){
+              var catItems=ir.data.filter(function(i){return i.category_id===cat.id});
+              return{n:cat.name,i:cat.icon||"🍽️",items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new?1:0}})};
+            }).filter(function(c){return c.items.length>0});
+            if(dbMenu.length>0)setMenu(dbMenu);
+          }
+        });
+      });
+    }})
   );
 }
 
@@ -483,7 +497,7 @@ function Admin({orders,avail,setAvail,staff,collectPayment}){
 // === MENU EDITOR ===
 
 // === MENU EDITOR (Category-wise Add/Delete) ===
-function MenuEditor(){
+function MenuEditor({onMenuChange}){
   var _cats=useState([]),cats=_cats[0],setCats=_cats[1];
   var _items=useState([]),items=_items[0],setItems=_items[1];
   var _loading=useState(true),loading=_loading[0],setLoading=_loading[1];
@@ -514,14 +528,14 @@ function MenuEditor(){
     var mx=cats.reduce(function(m,c){return Math.max(m,c.display_order||0)},0);
     var r=await sb.from("menu_categories").insert({name:ncName.toUpperCase().trim(),icon:ncIcon||"🍽️",display_order:mx+1,is_active:true});
     if(r.error){setMsg("Error: "+(r.error.message||"Failed"));return}
-    setMsg("✅ Category '"+ncName.toUpperCase()+"' added!");setNcName("");setNcIcon("🍽️");loadData();
+    setMsg("✅ Category '"+ncName.toUpperCase()+"' added!");setNcName("");setNcIcon("🍽️");loadData();if(onMenuChange)onMenuChange();
   }
 
   async function deleteCat(id,name){
     if(!confirm("Delete category '"+name+"' and ALL its items? This cannot be undone."))return;
     await sb.from("menu_items").delete().eq("category_id",id);
     await sb.from("menu_categories").delete().eq("id",id);
-    setMsg("🗑️ Category '"+name+"' deleted");if(selCat===id)setSelCat(null);loadData();
+    setMsg("🗑️ Category '"+name+"' deleted");if(selCat===id)setSelCat(null);loadData();if(onMenuChange)onMenuChange();
   }
 
   async function addItem(){
@@ -535,32 +549,32 @@ function MenuEditor(){
     });
     if(r.error){setMsg("Error: "+(r.error.message||"Failed"));return}
     setMsg("✅ '"+iName+"' added to "+cats.find(function(c){return c.id===selCat}).name);
-    setIName("");setIDesc("");setIPrice("");setINew(false);loadData();
+    setIName("");setIDesc("");setIPrice("");setINew(false);loadData();if(onMenuChange)onMenuChange();
   }
 
   async function deleteItem(id,name){
     if(!confirm("Delete '"+name+"'?"))return;
     await sb.from("menu_items").delete().eq("id",id);
-    setMsg("🗑️ '"+name+"' deleted");loadData();
+    setMsg("🗑️ '"+name+"' deleted");loadData();if(onMenuChange)onMenuChange();
   }
 
   async function updatePrice(id,newPrice){
     await sb.from("menu_items").update({price:Number(newPrice)}).eq("id",id);
-    loadData();
+    loadData();if(onMenuChange)onMenuChange();
   }
 
   async function editCatName(id,oldName){
     var newName=prompt("Rename category:",oldName);
     if(!newName||newName.trim()===oldName)return;
     await sb.from("menu_categories").update({name:newName.toUpperCase().trim()}).eq("id",id);
-    setMsg("✅ Category renamed to '"+newName.toUpperCase().trim()+"'");loadData();
+    setMsg("✅ Category renamed to '"+newName.toUpperCase().trim()+"'");loadData();if(onMenuChange)onMenuChange();
   }
 
   async function editCatIcon(id,oldIcon){
     var newIcon=prompt("Change icon emoji:",oldIcon);
     if(!newIcon)return;
     await sb.from("menu_categories").update({icon:newIcon.trim()}).eq("id",id);
-    loadData();
+    loadData();if(onMenuChange)onMenuChange();
   }
 
   async function editItem(id,field,oldVal){
@@ -571,12 +585,12 @@ function MenuEditor(){
     if(field==="price")upd.price=Number(newVal);
     else upd[field]=newVal.trim();
     await sb.from("menu_items").update(upd).eq("id",id);
-    setMsg("✅ Item updated");loadData();
+    setMsg("✅ Item updated");loadData();if(onMenuChange)onMenuChange();
   }
 
   async function toggleItemNew(id,current){
     await sb.from("menu_items").update({is_new:!current}).eq("id",id);
-    loadData();
+    loadData();if(onMenuChange)onMenuChange();
   }
 
   if(loading)return React.createElement("div",{style:{color:"#5e5447",padding:20,textAlign:"center"}},"Loading menu from database...");
@@ -665,12 +679,13 @@ function MenuEditor(){
 
 
 // === SETTLEMENT TAB (with partial payments) ===
+
+// === SETTLEMENT TAB (tick per order) ===
 function SettlementTab({orders,staff}){
   var _hist=useState([]),history=_hist[0],setHistory=_hist[1];
+  var _checked=useState({}),checked=_checked[0],setChecked=_checked[1];
   var _loading=useState(false),loading=_loading[0],setLoading=_loading[1];
-  var _amt=useState(""),amt=_amt[0],setAmt=_amt[1];
   var _from=useState(""),fromWho=_from[0],setFromWho=_from[1];
-  var _notes=useState(""),notes=_notes[0],setNotes=_notes[1];
   var _msg=useState(""),msg=_msg[0],setMsg=_msg[1];
 
   useEffect(function(){loadHistory()},[]);
@@ -682,37 +697,48 @@ function SettlementTab({orders,staff}){
 
   var today=new Date().toISOString().slice(0,10);
 
-  // Calculate today's numbers
+  // Categories
   var directPaid=orders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  var receptionCollected=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  var receptionPending=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
-  var totalBusiness=orders.reduce(function(s,o){return s+o.total},0);
-
-  // Already settled today (from history)
-  var todaySettled=history.filter(function(h){return h.settlement_date===today}).reduce(function(s,h){return s+Number(h.reception_collected||0)},0);
-
-  // Balance = what reception collected - what they already paid us
-  var balance=receptionCollected-todaySettled;
-
   var receptionOrders=orders.filter(function(o){return o.collectionSource==="RECEPTION"});
   var pendingOrders=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
+  var receptionTotal=receptionOrders.reduce(function(s,o){return s+o.total},0);
+  var guestPending=pendingOrders.reduce(function(s,o){return s+o.total},0);
+  var totalBusiness=orders.reduce(function(s,o){return s+o.total},0);
 
-  async function recordPayment(){
-    var amount=Number(amt);
-    if(!amount||amount<=0){setMsg("Enter a valid amount");return}
+  // Already settled (from DB)
+  var todaySettled=history.filter(function(h){return h.settlement_date===today}).reduce(function(s,h){return s+Number(h.reception_collected||0)},0);
+
+  // Unsettled reception orders = those not yet marked settled in DB
+  var unsettled=receptionOrders.filter(function(o){return!o.settlementDate});
+  var unsettledTotal=unsettled.reduce(function(s,o){return s+o.total},0);
+
+  // Checked amount
+  var checkedTotal=unsettled.filter(function(o){return checked[o.id]}).reduce(function(s,o){return s+o.total},0);
+  var checkedOrders=unsettled.filter(function(o){return checked[o.id]});
+
+  function toggleCheck(id){setChecked(function(p){var n=Object.assign({},p);if(n[id])delete n[id];else n[id]=true;return n})}
+  function selectAll(){var n={};unsettled.forEach(function(o){n[o.id]=true});setChecked(n)}
+  function clearAll(){setChecked({})}
+
+  async function settleChecked(){
+    if(checkedOrders.length===0){setMsg("Select at least one order");return}
     if(!fromWho.trim()){setMsg("Enter who gave the payment");return}
     setLoading(true);
     try{
       await sb.from("daily_settlements").insert({
         settlement_date:today,
         restaurant_collected:directPaid,
-        reception_collected:amount,
-        total_pending:Math.max(0,balance-amount),
+        reception_collected:checkedTotal,
+        total_pending:Math.max(0,unsettledTotal-checkedTotal),
         settled_by:staff?staff.display_name:"Admin",
-        notes:"Received ₹"+amount+" from "+fromWho.trim()+(notes?" — "+notes:"")
+        notes:"₹"+checkedTotal+" received from "+fromWho.trim()+" ("+checkedOrders.length+" orders)"
       });
-      setMsg("✅ ₹"+amount+" received from "+fromWho.trim()+" recorded!");
-      setAmt("");setFromWho("");setNotes("");loadHistory();
+      // Mark orders as settled
+      for(var i=0;i<checkedOrders.length;i++){
+        await sb.from("orders").update({settlement_status:"SETTLED_WITH_HOTEL",settlement_date:today}).eq("id",checkedOrders[i].id);
+      }
+      setMsg("✅ ₹"+checkedTotal+" from "+fromWho.trim()+" recorded! "+checkedOrders.length+" orders settled.");
+      setChecked({});setFromWho("");loadHistory();
     }catch(e){setMsg("Error: "+(e.message||"Failed"))}
     setLoading(false);
   }
@@ -724,10 +750,10 @@ function SettlementTab({orders,staff}){
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(130px,1fr))",gap:8,marginBottom:16}},
       [{l:"Total Business",v:"₹"+totalBusiness,c:"#c8a44e"},
        {l:"Direct to Us",v:"₹"+directPaid,c:"#22c55e",sub:"Online + Dine-in"},
-       {l:"Reception Collected",v:"₹"+receptionCollected,c:"#8b5cf6",sub:"From room guests"},
-       {l:"Already Settled",v:"₹"+todaySettled,c:"#4ade80",sub:"Received from reception"},
-       {l:"Balance Due",v:"₹"+Math.max(0,balance),c:balance>0?"#f59e0b":"#22c55e",sub:balance>0?"Reception owes this":"All clear!"},
-       {l:"Guest Not Paid",v:"₹"+receptionPending,c:"#ef4444",sub:pendingOrders.length+" orders pending"}
+       {l:"Reception Has",v:"₹"+receptionTotal,c:"#8b5cf6",sub:receptionOrders.length+" orders"},
+       {l:"Settled Today",v:"₹"+todaySettled,c:"#4ade80",sub:"Already received"},
+       {l:"Pending from Recep",v:"₹"+unsettledTotal,c:unsettledTotal>0?"#f59e0b":"#22c55e",sub:unsettledTotal>0?unsettled.length+" orders":"All clear!"},
+       {l:"Guest Not Paid",v:"₹"+guestPending,c:"#ef4444",sub:pendingOrders.length+" at reception"}
       ].map(function(s,i){return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid "+s.c}},
         React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},s.l),
         React.createElement("div",{style:{fontSize:20,fontWeight:800,color:s.c}},s.v),
@@ -735,45 +761,53 @@ function SettlementTab({orders,staff}){
       )})
     ),
 
-    // Collect Payment Box
-    balance>0?React.createElement("div",{style:{background:"#8b5cf610",border:"2px solid #8b5cf630",borderRadius:12,padding:16,marginBottom:16}},
-      React.createElement("div",{style:{fontSize:15,fontWeight:800,color:"#8b5cf6",marginBottom:4}},"💰 Reception Owes: ₹"+balance),
-      React.createElement("div",{style:{fontSize:10,color:"#8b5cf680",marginBottom:12}},"Enter the amount you received (can be partial)"),
-      // Amount input
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+    // Unsettled orders with checkboxes
+    unsettled.length>0?React.createElement("div",{style:{background:"#8b5cf610",border:"2px solid #8b5cf630",borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}},
         React.createElement("div",null,
-          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"AMOUNT RECEIVED *"),
-          React.createElement("input",{value:amt,onChange:function(e){setAmt(e.target.value.replace(/[^\d]/g,""));setMsg("")},placeholder:"e.g. 800",inputMode:"numeric",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:16,fontWeight:700,color:"#4ade80",outline:"none"}})
+          React.createElement("div",{style:{fontSize:15,fontWeight:800,color:"#8b5cf6"}},"💰 Pending from Reception: ₹"+unsettledTotal),
+          React.createElement("div",{style:{fontSize:10,color:"#8b5cf680"}},"Tick orders for which you received payment")
         ),
-        React.createElement("div",null,
-          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"RECEIVED FROM *"),
-          React.createElement("input",{value:fromWho,onChange:function(e){setFromWho(e.target.value);setMsg("")},placeholder:"e.g. Mr. Sharma (Reception)",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        React.createElement("div",{style:{display:"flex",gap:4}},
+          React.createElement("button",{onClick:selectAll,style:{background:"#4ade8018",color:"#4ade80",border:"1px solid #4ade8030",padding:"4px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"✓ All"),
+          React.createElement("button",{onClick:clearAll,style:{background:"#6b728018",color:"#6b7280",border:"1px solid #6b728030",padding:"4px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"Clear")
         )
       ),
-      React.createElement("div",{style:{marginBottom:10}},
-        React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"NOTES (optional)"),
-        React.createElement("input",{value:notes,onChange:function(e){setNotes(e.target.value)},placeholder:"e.g. Cash payment, UPI to account, etc.",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:12,color:"#f2ede4",outline:"none"}})
-      ),
-      amt?React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginBottom:8}},"After this: Balance will be ₹"+Math.max(0,balance-Number(amt||0))):null,
-      msg?React.createElement("div",{style:{color:msg.startsWith("✅")?"#4ade80":"#ef4444",fontSize:11,marginBottom:8}},msg):null,
-      React.createElement("button",{onClick:recordPayment,disabled:loading,style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:13,borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer",opacity:loading?0.6:1}},loading?"Recording...":"✅ Record Payment of ₹"+(amt||"0"))
+      // Order list with checkboxes
+      unsettled.map(function(o){
+        var isChecked=!!checked[o.id];
+        return React.createElement("div",{key:o.id,onClick:function(){toggleCheck(o.id)},style:{display:"flex",alignItems:"center",gap:10,padding:"8px 10px",background:isChecked?"#22c55e08":"#111318",border:"1px solid "+(isChecked?"#22c55e30":"#1a1f2e"),borderRadius:8,marginBottom:4,cursor:"pointer"}},
+          React.createElement("div",{style:{width:22,height:22,borderRadius:5,border:"2px solid "+(isChecked?"#22c55e":"#4b5563"),background:isChecked?"#22c55e":"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}},
+            isChecked?React.createElement("span",{style:{color:"#000",fontSize:14,fontWeight:800}},"✓"):null
+          ),
+          React.createElement("div",{style:{flex:1,minWidth:0}},
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between"}},
+              React.createElement("span",{style:{fontSize:12,fontWeight:600,color:isChecked?"#4ade80":"#e8e2d8"}},"Room "+o.room+" • "+o.guestName),
+              React.createElement("span",{style:{fontSize:14,fontWeight:800,color:isChecked?"#4ade80":"#8b5cf6"}},"₹"+o.total)
+            ),
+            React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},o.items.map(function(i){return i.name+"×"+i.qty}).join(", ")+" • "+fmt(o.time))
+          )
+        )
+      }),
+      // Bottom: selected total + from + settle button
+      React.createElement("div",{style:{marginTop:12,background:"#0e0f15",borderRadius:8,padding:12}},
+        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:8}},
+          React.createElement("span",{style:{fontSize:12,color:"#6b7280"}},"Selected: "+checkedOrders.length+" order"+(checkedOrders.length!==1?"s":"")),
+          React.createElement("span",{style:{fontSize:18,fontWeight:800,color:checkedTotal>0?"#4ade80":"#6b7280"}},"₹"+checkedTotal)
+        ),
+        React.createElement("input",{value:fromWho,onChange:function(e){setFromWho(e.target.value);setMsg("")},placeholder:"Received from (e.g. Mr. Sharma - Reception)",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"10px 12px",fontSize:12,color:"#f2ede4",outline:"none",marginBottom:8}}),
+        msg?React.createElement("div",{style:{color:msg.startsWith("✅")?"#4ade80":"#ef4444",fontSize:11,marginBottom:6}},msg):null,
+        React.createElement("button",{onClick:settleChecked,disabled:loading||checkedTotal===0,style:{width:"100%",background:checkedTotal>0?"linear-gradient(135deg,#22c55e,#16a34a)":"#333",color:checkedTotal>0?"#fff":"#666",border:"none",padding:13,borderRadius:8,fontWeight:700,fontSize:14,cursor:checkedTotal>0?"pointer":"not-allowed"}},loading?"Recording...":"✅ Received ₹"+checkedTotal+" — Mark "+checkedOrders.length+" Order"+(checkedOrders.length!==1?"s":"")+" Settled")
+      )
     ):React.createElement("div",{style:{background:"#22c55e10",border:"1px solid #22c55e20",borderRadius:10,padding:16,marginBottom:16,textAlign:"center"}},
       React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e"}},"✅ All Settled with Reception!"),
-      React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginTop:4}},"No pending balance")
+      React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginTop:4}},"No pending amount")
     ),
 
-    // Reception orders detail
-    receptionOrders.length>0?React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:14}},
-      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#8b5cf6",marginBottom:8}},"📋 Orders Collected by Reception (₹"+receptionCollected+")"),
-      receptionOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
-        React.createElement("span",null,"Room "+o.room+" • "+o.guestName+" • "+fmt(o.time)),
-        React.createElement("span",{style:{fontWeight:700,color:"#8b5cf6"}},"₹"+o.total)
-      )})
-    ):null,
-
-    // Pending guest payments
+    // Guest not paid yet
     pendingOrders.length>0?React.createElement("div",{style:{background:"#f59e0b08",border:"1px solid #f59e0b15",borderRadius:10,padding:14,marginBottom:14}},
-      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Not Paid Yet (₹"+receptionPending+")"),
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Not Paid Yet (₹"+guestPending+")"),
+      React.createElement("div",{style:{fontSize:10,color:"#f59e0b80",marginBottom:6}},"Reception should collect at checkout"),
       pendingOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
         React.createElement("span",null,"Room "+o.room+" • "+o.guestName+" • "+o.guestPhone),
         React.createElement("span",{style:{fontWeight:700,color:"#f59e0b"}},"₹"+o.total)
@@ -781,17 +815,15 @@ function SettlementTab({orders,staff}){
     ):null,
 
     // Settlement History
-    React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",margin:"8px 0 10px"}},"📋 Payment History"),
-    history.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:16}},"No payments recorded yet"):null,
+    React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",margin:"8px 0 10px"}},"📋 Settlement History"),
+    history.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:16}},"No settlements yet"):null,
     history.map(function(h){return React.createElement("div",{key:h.id,style:{background:"#111318",borderRadius:8,padding:"10px 12px",marginBottom:5,border:"1px solid #22c55e10"}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
         React.createElement("div",null,
-          React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#22c55e"}},"₹"+h.reception_collected+" received"),
-          React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},new Date(h.created_at).toLocaleString("en-IN")+" • "+h.settled_by)
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#22c55e"}},"₹"+h.reception_collected+" received"),
+          React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},new Date(h.created_at).toLocaleString("en-IN")+" • By: "+h.settled_by)
         ),
-        React.createElement("div",{style:{fontSize:10,color:"#6b7280",textAlign:"right"}},
-          React.createElement("div",null,h.settlement_date)
-        )
+        h.total_pending>0?React.createElement("div",{style:{fontSize:10,color:"#f59e0b"}},"Pending: ₹"+h.total_pending):null
       ),
       h.notes?React.createElement("div",{style:{fontSize:10,color:"#9ca3af",marginTop:3}},"📝 "+h.notes):null
     )})
@@ -1262,6 +1294,7 @@ function App(){
   var _s=useState(initialPanel),panel=_s[0],setPanel=_s[1];
   var _o=useState([]),orders=_o[0],setOrders=_o[1];
   var _a=useState({}),avail=_a[0],setAvail=_a[1];
+  var _m=useState(null),menu=_m[0],setMenu=_m[1];
   var _d=useState(false),dbReady=_d[0],setDbReady=_d[1];
   var _e=useState(null),dbError=_e[0],setDbError=_e[1];
   var _st=useState(null),staff=_st[0],setStaff=_st[1];
@@ -1307,6 +1340,21 @@ function App(){
           });
         }
         setAvail(av);
+
+        // Load menu from database
+        var cr=await sb.from("menu_categories").select("*").eq("is_active",true).order("display_order");
+        var ir=await sb.from("menu_items").select("*").order("category_id").order("display_order");
+        if(cr.data&&ir.data&&cr.data.length>0){
+          var dbMenu=cr.data.map(function(cat){
+            var catItems=ir.data.filter(function(i){return i.category_id===cat.id});
+            return{
+              n:cat.name,i:cat.icon||"🍽️",
+              items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new?1:0}})
+            };
+          }).filter(function(c){return c.items.length>0});
+          if(dbMenu.length>0)setMenu(dbMenu);
+        }
+
         setDbReady(true);
       }catch(e){
         console.error("DB error:",JSON.stringify(e));
@@ -1449,11 +1497,11 @@ function App(){
 
   return React.createElement(React.Fragment,null,
     isAdmin?React.createElement(Nav):null,
-    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail}):null,
+    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail,menu:menu}):null,
     panel==="kitchen"?React.createElement(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
     panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
     panel==="reception"?React.createElement(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
-    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync,staff:staff,collectPayment:collectPayment}):null
+    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync,staff:staff,collectPayment:collectPayment,menu:menu}):null
   );
 }
 
