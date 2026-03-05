@@ -673,14 +673,27 @@ function ReportsTab({orders}){
       // Download button
       React.createElement("div",{style:{marginBottom:12}},
         React.createElement("button",{onClick:function(){
-          var rows=reportData.map(function(o){return{
-            "Date":o.time.toLocaleDateString("en-IN"),"Time":fmt(o.time),"Order ID":o.id.slice(0,8),
-            "Room":o.room,"Guest Name":o.guestName,"Items":o.items.map(function(i){return i.name+"×"+i.qty}).join(", "),
-            "Subtotal":"₹"+o.total+(o.couponDiscount>0?"+₹"+o.couponDiscount:""),
-            "Coupon":o.couponCode||"-","Discount":"₹"+(o.couponDiscount||0),
-            "Total":"₹"+o.total,"Payment":o.paymentMethod,
-            "Collected By":o.collectedBy||"PENDING","Source":o.collectionSource||"PENDING",
-            "Status":o.status
+          var rows=reportData.map(function(o){
+            var itemTotal=o.items.reduce(function(s,i){return s+i.price*i.qty},0);
+            return{
+            "Date":o.time.toLocaleDateString("en-IN"),
+            "Time":fmt(o.time),
+            "Order ID":o.id.slice(0,8),
+            "Room":o.room,
+            "Guest Name":o.guestName,
+            "Phone":o.guestPhone||"-",
+            "Items":o.items.map(function(i){return i.name+" × "+i.qty}).join(", "),
+            "No. of Items":o.items.reduce(function(s,i){return s+i.qty},0),
+            "Item Total (₹)":itemTotal,
+            "Coupon Code":o.couponCode||"-",
+            "Coupon Discount (₹)":o.couponDiscount||0,
+            "Pay Now Discount (₹)":o.payNowDiscount||0,
+            "Final Amount (₹)":o.total,
+            "Payment Mode":o.paymentMethod==="PAID"?"Online / Direct":"Room Bill (Pay Later)",
+            "Collected By":o.collectedBy||"NOT COLLECTED",
+            "Collection Source":o.collectionSource==="RESTAURANT"?"Restaurant":o.collectionSource==="RECEPTION"?"Reception":"Pending",
+            "Order Status":o.status,
+            "Instructions":o.instructions||"-"
           }});
           exportToExcel(rows,"7thSky_Report_"+dateFrom+"_to_"+dateTo+".xlsx");
         },style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"10px 20px",borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer"}},"📥 Download Excel Report"),
