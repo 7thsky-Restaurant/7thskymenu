@@ -399,7 +399,7 @@ function Cash({orders,onUpdate,onCollect,staff}){
 
 
 // === ADMIN ===
-function Admin({orders,avail,setAvail,staff,collectPayment,menu}){
+function Admin({orders,avail,setAvail,staff,collectPayment,menu,setOrders}){
   var MD=menu||FALLBACK_MD;
   const[tab,setTab]=useState("dash");const[sq,setSq]=useState("");
   const paid=orders.filter(o=>o.paymentMethod==="PAID").reduce((s,o)=>s+o.total,0);
@@ -1510,7 +1510,7 @@ function App(){
     panel==="kitchen"?React.createElement(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
     panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
     panel==="reception"?React.createElement(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
-    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync,staff:staff,collectPayment:collectPayment,menu:menu}):null
+    panel==="admin"?React.createElement(Admin,{orders:orders,avail:avail,setAvail:setAvailSync,staff:staff,collectPayment:collectPayment,menu:menu,setOrders:setOrders}):null
   );
 }
 
