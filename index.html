@@ -414,7 +414,7 @@ function Admin({orders,avail,setAvail,staff,collectPayment}){
       staff?React.createElement("div",{style:{fontSize:10,color:"#4ade80"}},"👤 "+staff.display_name):null
     ),
     React.createElement("div",{style:{display:"flex",gap:4,marginBottom:16,flexWrap:"wrap",overflowX:"auto"}},
-      [{id:"dash",l:"📊 Dashboard"},{id:"orders",l:"📋 Orders"},{id:"reports",l:"📈 Reports"},{id:"coupons",l:"🎟️ Coupons"},{id:"menu",l:"🍽️ Menu"},{id:"editmenu",l:"✏️ Edit Menu"}].map(t=>React.createElement("button",{key:t.id,onClick:()=>setTab(t.id),style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"7px 12px",borderRadius:8,fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}},t.l))
+      [{id:"dash",l:"📊 Dashboard"},{id:"orders",l:"📋 Orders"},{id:"settle",l:"🏦 Settlement"},{id:"reports",l:"📈 Reports"},{id:"coupons",l:"🎟️ Coupons"},{id:"menu",l:"🍽️ Menu"},{id:"editmenu",l:"✏️ Edit Menu"}].map(t=>React.createElement("button",{key:t.id,onClick:()=>setTab(t.id),style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"7px 12px",borderRadius:8,fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}},t.l))
     ),
     // Dashboard
     tab==="dash"&&React.createElement(React.Fragment,null,
@@ -443,6 +443,8 @@ function Admin({orders,avail,setAvail,staff,collectPayment}){
         React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13}},React.createElement("span",null,"Total"),React.createElement("span",{style:{color:"#c8a44e"}},"₹"+o.total))
       ))
     ),
+    // Settlement
+    tab==="settle"&&React.createElement(SettlementTab,{orders:orders,staff:staff}),
     // Reports
     tab==="reports"&&React.createElement(ReportsTab,{orders:orders}),
     // Coupons
@@ -628,6 +630,145 @@ function MenuEditor(){
   );
 }
 
+
+// === SETTLEMENT TAB ===
+function SettlementTab({orders,staff}){
+  var _hist=useState([]),history=_hist[0],setHistory=_hist[1];
+  var _loading=useState(false),loading=_loading[0],setLoading=_loading[1];
+  var _notes=useState(""),notes=_notes[0],setNotes=_notes[1];
+  var _msg=useState(""),msg=_msg[0],setMsg=_msg[1];
+  var _dateF=useState(new Date().toISOString().slice(0,10)),dateF=_dateF[0],setDateF=_dateF[1];
+
+  useEffect(function(){loadHistory()},[]);
+
+  async function loadHistory(){
+    var r=await sb.from("daily_settlements").select("*").order("settlement_date",{ascending:false}).limit(30);
+    if(r.data)setHistory(r.data);
+  }
+
+  // Calculate today's numbers from orders
+  var today=new Date().toISOString().slice(0,10);
+  var todayOrders=orders;
+
+  // Direct to us (online pay + dine-in cash)
+  var directPaid=todayOrders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  // Collected by reception (they have our money)
+  var receptionCollected=todayOrders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  // Still pending at reception (guest chose pay later, reception hasn't collected yet)
+  var receptionPending=todayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
+  // Total business
+  var totalBusiness=todayOrders.reduce(function(s,o){return s+o.total},0);
+  // What reception owes us = collected by reception (not yet settled)
+  var receptionOwes=receptionCollected;
+
+  // Reception orders detail
+  var receptionOrders=todayOrders.filter(function(o){return o.collectionSource==="RECEPTION"});
+  var pendingOrders=todayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
+
+  async function settleNow(){
+    if(receptionOwes<=0){setMsg("Nothing to settle!");return}
+    setLoading(true);
+    try{
+      await sb.from("daily_settlements").insert({
+        settlement_date:today,
+        restaurant_collected:directPaid,
+        reception_collected:receptionCollected,
+        total_pending:receptionPending,
+        settled_by:staff?staff.display_name:"Admin",
+        notes:notes||"Daily settlement"
+      });
+      // Mark all reception-collected orders as settled
+      for(var i=0;i<receptionOrders.length;i++){
+        await sb.from("orders").update({settlement_status:"SETTLED_WITH_HOTEL",settlement_date:today}).eq("id",receptionOrders[i].id);
+      }
+      setMsg("✅ Settlement of ₹"+receptionOwes+" recorded! Reception amount cleared.");
+      setNotes("");loadHistory();
+    }catch(e){setMsg("Error: "+(e.message||"Failed"))}
+    setLoading(false);
+  }
+
+  return React.createElement("div",null,
+    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:14}},"🏦 Daily Settlement with Reception"),
+
+    // Today's Summary Cards
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(140px,1fr))",gap:8,marginBottom:16}},
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #c8a44e"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Today's Total Business"),
+        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#c8a44e"}},"₹"+totalBusiness)
+      ),
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #22c55e"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Direct to Us"),
+        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#22c55e"}},"₹"+directPaid),
+        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"Online + Dine-in cash")
+      ),
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #8b5cf6"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Reception Collected"),
+        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#8b5cf6"}},"₹"+receptionCollected),
+        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"They owe us this")
+      ),
+      React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid #f59e0b"}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:8,textTransform:"uppercase",letterSpacing:1}},"Guest Not Paid Yet"),
+        React.createElement("div",{style:{fontSize:22,fontWeight:800,color:"#f59e0b"}},"₹"+receptionPending),
+        React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"Still at reception")
+      )
+    ),
+
+    // Reception owes section
+    receptionOwes>0?React.createElement("div",{style:{background:"#8b5cf615",border:"2px solid #8b5cf640",borderRadius:12,padding:16,marginBottom:16}},
+      React.createElement("div",{style:{fontSize:16,fontWeight:800,color:"#8b5cf6",marginBottom:4}},"💰 Reception Owes You: ₹"+receptionOwes),
+      React.createElement("div",{style:{fontSize:11,color:"#8b5cf680",marginBottom:12}},"This is money collected by reception from room guests for your food orders"),
+      // List of reception-collected orders
+      receptionOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"6px 0",borderBottom:"1px solid #1a1f2e",fontSize:12}},
+        React.createElement("div",null,
+          React.createElement("span",{style:{fontWeight:600}},"Room "+o.room),
+          React.createElement("span",{style:{color:"#6b7280",marginLeft:5}},"• "+o.guestName+" • "+fmt(o.time)),
+          React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},o.items.map(function(i){return i.name+"×"+i.qty}).join(", "))
+        ),
+        React.createElement("span",{style:{fontWeight:800,color:"#8b5cf6"}},"₹"+o.total)
+      )}),
+      React.createElement("div",{style:{marginTop:12}},
+        React.createElement("input",{value:notes,onChange:function(e){setNotes(e.target.value)},placeholder:"Notes (e.g. Cash received from Mr. Sharma at reception)",style:{width:"100%",background:"#111318",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:11,color:"#f2ede4",outline:"none",marginBottom:8}}),
+        React.createElement("button",{onClick:settleNow,disabled:loading,style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:12,borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer",opacity:loading?0.6:1}},loading?"Settling...":"✅ Mark ₹"+receptionOwes+" as Received from Reception")
+      )
+    ):React.createElement("div",{style:{background:"#22c55e10",border:"1px solid #22c55e20",borderRadius:10,padding:16,marginBottom:16,textAlign:"center"}},
+      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e"}},"✅ No pending amount from Reception"),
+      React.createElement("div",{style:{fontSize:11,color:"#6b7280",marginTop:4}},"All settled for today")
+    ),
+
+    // Pending guest payments at reception
+    pendingOrders.length>0?React.createElement("div",{style:{background:"#f59e0b10",border:"1px solid #f59e0b20",borderRadius:10,padding:14,marginBottom:16}},
+      React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Who Haven't Paid Yet (₹"+receptionPending+")"),
+      React.createElement("div",{style:{fontSize:10,color:"#f59e0b80",marginBottom:8}},"These guests chose 'Pay Later' — Reception should collect at checkout"),
+      pendingOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
+        React.createElement("span",null,"Room "+o.room+" • "+o.guestName+" • "+o.guestPhone),
+        React.createElement("span",{style:{fontWeight:700,color:"#f59e0b"}},"₹"+o.total)
+      )})
+    ):null,
+
+    msg?React.createElement("div",{style:{background:msg.startsWith("✅")?"#4ade8012":"#ef444412",border:"1px solid "+(msg.startsWith("✅")?"#4ade8025":"#ef444425"),borderRadius:8,padding:"8px 12px",marginBottom:12,fontSize:11,color:msg.startsWith("✅")?"#4ade80":"#ef4444"}},msg):null,
+
+    // Settlement History
+    React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",margin:"8px 0 10px"}},"📋 Settlement History"),
+    history.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:16}},"No settlements yet"):null,
+    history.map(function(h){return React.createElement("div",{key:h.id,style:{background:"#111318",borderRadius:8,padding:"10px 12px",marginBottom:6,border:"1px solid #22c55e12"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:13,fontWeight:700,color:"#22c55e"}},new Date(h.settlement_date+"T12:00:00").toLocaleDateString("en-IN",{weekday:"short",day:"numeric",month:"short",year:"numeric"})),
+          React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},"Settled by: "+(h.settled_by||"Admin"))
+        ),
+        React.createElement("div",{style:{textAlign:"right"}},
+          React.createElement("div",{style:{fontSize:16,fontWeight:800,color:"#8b5cf6"}},"₹"+h.reception_collected),
+          React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},"from Reception")
+        )
+      ),
+      React.createElement("div",{style:{display:"flex",gap:12,marginTop:6,fontSize:10,color:"#6b7280"}},
+        React.createElement("span",null,"Direct: ₹"+h.restaurant_collected),
+        React.createElement("span",null,"Pending: ₹"+h.total_pending)
+      ),
+      h.notes?React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginTop:3}},"📝 "+h.notes):null
+    )})
+  );
+}
 
 // === REPORTS TAB ===
 function ReportsTab({orders}){
