@@ -162,7 +162,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
   const items=useMemo(()=>Object.entries(cart).map(([k,qty])=>{const[c,i]=k.split("-").map(Number);return{...MD[c].items[i],qty,k,ci:c,ii:i}}),[cart]);
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
-  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();var found=activeCoupons.find(function(c){return c.code===k});if(found){setApplied({t:found.type,v:Number(found.value),l:found.type==="percent"?found.value+"% Off":"₹"+found.value+" Off",desc:found.description||"Discount"});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
+  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();var found=activeCoupons.find(function(c){return c.code===k});if(found){var minReq=Number(found.min_order||0);if(minReq>0&&sub<minReq){setCErr("Minimum order ₹"+minReq+" required (your cart: ₹"+sub+")");setApplied(null);return}setApplied({t:found.type,v:Number(found.value),l:found.type==="percent"?found.value+"% Off":"₹"+found.value+" Off",desc:found.description||"Discount",min:minReq});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
   const order=(pay)=>{const pD=pay?Math.round((sub-disc)*0.05):0;const o={id:gid(),room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":"PAY_LATER",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
@@ -288,9 +288,9 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
           cErr&&React.createElement("div",{style:{color:"#f87171",fontSize:11,marginBottom:6}},cErr),
           applied&&React.createElement("div",{style:{color:"#4ade80",fontSize:12,fontWeight:600,marginBottom:8}},"✓ "+applied.l+" — Save ₹"+disc),
           React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}},"Available Offers"),
-          activeCoupons.filter(function(c){return!c.assigned_to_guest}).map(function(c){var on=applied&&coupon===c.code;return React.createElement("div",{key:c.code,onClick:function(){if(!on)tryCode(c.code)},style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":"#c8a44e30"),borderRadius:8,padding:"8px 10px",cursor:"pointer",marginBottom:4}},
-            React.createElement("div",null,React.createElement("div",{style:{fontFamily:"monospace",fontSize:12,fontWeight:700,color:on?"#4ade80":"#c8a44e",letterSpacing:1}},c.code),React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:1}},c.description||c.type==="percent"?c.value+"% off":"₹"+c.value+" off")),
-            React.createElement("div",{style:{background:on?"#4ade80":"#c8a44e18",color:on?"#000":"#c8a44e",fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:20}},on?"✓ APPLIED":"TAP")
+          activeCoupons.filter(function(c){return!c.assigned_to_guest}).map(function(c){var on=applied&&coupon===c.code;var minReq=Number(c.min_order||0);var canApply=minReq<=0||sub>=minReq;return React.createElement("div",{key:c.code,onClick:function(){if(!on&&canApply)tryCode(c.code)},style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":canApply?"#c8a44e30":"#33333350"),borderRadius:8,padding:"8px 10px",cursor:canApply?"pointer":"default",marginBottom:4,opacity:canApply?1:0.5}},
+            React.createElement("div",null,React.createElement("div",{style:{fontFamily:"monospace",fontSize:12,fontWeight:700,color:on?"#4ade80":canApply?"#c8a44e":"#6b7280",letterSpacing:1}},c.code),React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:1}},(c.description||(c.type==="percent"?c.value+"% off":"₹"+c.value+" off"))+(minReq>0?" • Min order ₹"+minReq:""))),
+            React.createElement("div",{style:{background:on?"#4ade80":canApply?"#c8a44e18":"#33333318",color:on?"#000":canApply?"#c8a44e":"#6b7280",fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:20}},on?"✓ APPLIED":canApply?"TAP":"Add ₹"+(minReq-sub)+" more")
           )})
         ),
         // Bill
@@ -318,10 +318,46 @@ function Kitchen({orders,onUpdate}){
   const active=orders.filter(o=>o.status!=="DELIVERED"&&o.status!=="CANCELLED");
   const newOrders=active.filter(o=>o.status==="NEW");
   const col=s=>({NEW:"#f59e0b",PREPARING:"#3b82f6",READY:"#22c55e"})[s]||"#6b7280";
+  const printedRef=useRef({});
 
-  // Persistent alarm for NEW orders
+  // Print KOT slip
+  function printKOT(o){
+    var w=window.open("","_blank","width=300,height=500");
+    if(!w)return;
+    var itemsHtml=o.items.map(function(it){return"<tr><td style='font-size:14px;padding:2px 0'>"+it.name+"</td><td style='font-size:14px;font-weight:bold;text-align:right;padding:2px 0'>x"+it.qty+"</td></tr>"}).join("");
+    w.document.write("<html><head><title>KOT</title><style>"+
+      "body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:8px}"+
+      ".center{text-align:center}.bold{font-weight:bold}.line{border-top:1px dashed #000;margin:5px 0}"+
+      ".big{font-size:16px}table{width:100%}"+
+      "</style></head><body>"+
+      "<div class='center bold big'>*** KOT ***</div>"+
+      "<div class='center bold'>KITCHEN ORDER TICKET</div>"+
+      "<div class='line'></div>"+
+      "<div style='display:flex;justify-content:space-between'><span class='bold'>Room: "+o.room+"</span><span>#"+o.id.slice(0,8).toUpperCase()+"</span></div>"+
+      "<div style='display:flex;justify-content:space-between'><span>Guest: "+o.guestName+"</span><span>"+fmt(o.time)+"</span></div>"+
+      "<div class='line'></div>"+
+      "<table>"+itemsHtml+"</table>"+
+      "<div class='line'></div>"+
+      (o.instructions?"<div class='bold'>NOTE: "+o.instructions+"</div><div class='line'></div>":"")+
+      "<div class='center bold' style='font-size:14px'>Items: "+o.items.reduce(function(s,i){return s+i.qty},0)+"</div>"+
+      "<div class='center' style='font-size:10px;margin-top:4px'>"+new Date().toLocaleString("en-IN")+"</div>"+
+      "</body></html>");
+    w.document.close();
+    setTimeout(function(){w.print()},400);
+  }
+
+  // Persistent alarm + auto print KOT for NEW orders
   useEffect(function(){
-    if(newOrders.length>0){startAlarm()}else{stopAlarm()}
+    if(newOrders.length>0){
+      startAlarm();
+      // Auto print KOT for orders not yet printed
+      newOrders.forEach(function(o){
+        if(!printedRef.current[o.id]){
+          printedRef.current[o.id]=true;
+          printKOT(o);
+        }
+      });
+    }else{stopAlarm()}
     return function(){stopAlarm()};
   },[newOrders.length]);
 
@@ -350,6 +386,7 @@ function Kitchen({orders,onUpdate}){
         ))),
         o.instructions?React.createElement("div",{style:{margin:"0 14px 8px",background:"#1e1510",border:"1px solid #f59e0b20",borderRadius:8,padding:"6px 10px"}},React.createElement("div",{style:{fontSize:9,color:"#f59e0b",fontWeight:700,letterSpacing:1,marginBottom:2}},"📝 INSTRUCTIONS"),React.createElement("div",{style:{fontSize:12,color:"#e8c97a",lineHeight:1.3}},o.instructions)):null,
         React.createElement("div",{style:{padding:"0 14px 12px",display:"flex",gap:6}},
+          React.createElement("button",{onClick:function(){printKOT(o)},style:{background:"#6b728018",color:"#9ca3af",border:"1px solid #6b728030",padding:"10px 8px",borderRadius:8,fontWeight:700,fontSize:11,cursor:"pointer"}},"🖨️"),
           o.status==="NEW"?React.createElement("button",{onClick:function(){acceptOrder(o.id)},style:{flex:1,background:"#3b82f6",color:"#fff",border:"none",padding:"12px",borderRadius:8,fontWeight:700,fontSize:14,cursor:"pointer"}},"🔥 ACCEPT & PREPARE"):null,
           o.status==="PREPARING"?React.createElement("button",{onClick:function(){onUpdate(o.id,"READY")},style:{flex:1,background:"#22c55e",color:"#000",border:"none",padding:"10px",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}},"✅ Ready"):null,
           o.status==="READY"?React.createElement("button",{onClick:function(){onUpdate(o.id,"DELIVERED")},style:{flex:1,background:"#8b5cf6",color:"#fff",border:"none",padding:"10px",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}},"🚀 Delivered"):null
@@ -360,41 +397,120 @@ function Kitchen({orders,onUpdate}){
 }
 
 // ═══ CASH COUNTER ═══
+
+// === CASH COUNTER (with bill printing) ===
 function Cash({orders,onUpdate,onCollect,staff}){
   const[f,setF]=useState("ALL");
-  const list=f==="ALL"?orders:orders.filter(o=>o.paymentMethod===f);
-  const paid=orders.filter(o=>o.paymentMethod==="PAID").reduce((s,o)=>s+o.total,0);
-  const unpaid=orders.filter(o=>o.paymentMethod==="PAY_LATER").reduce((s,o)=>s+o.total,0);
+  const printedBillRef=useRef({});
+  const list=f==="ALL"?orders:f==="UNPAID"?orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}):orders.filter(function(o){return o.paymentMethod===f||o.collectionSource});
+
+  var directPaid=orders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var receptionDue=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
+  var receptionCollected=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var cashCollected=orders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
+  var totalBiz=orders.reduce(function(s,o){return s+o.total},0);
+
+  // Print bill
+  function printBill(o){
+    var w=window.open("","_blank","width=300,height=600");
+    if(!w)return;
+    var itemsHtml=o.items.map(function(it){return"<tr><td style='padding:2px 0'>"+it.name+" x"+it.qty+"</td><td style='text-align:right;padding:2px 0'>Rs."+it.price*it.qty+"</td></tr>"}).join("");
+    var subtotal=o.items.reduce(function(s,i){return s+i.price*i.qty},0);
+    w.document.write("<html><head><title>Bill</title><style>"+
+      "body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:8px}"+
+      ".center{text-align:center}.bold{font-weight:bold}.line{border-top:1px dashed #000;margin:5px 0}"+
+      ".big{font-size:16px}.row{display:flex;justify-content:space-between}table{width:100%}"+
+      "</style></head><body>"+
+      "<div class='center bold big'>7th Sky Fine Dine</div>"+
+      "<div class='center'>2nd Floor, 7th Sky Hotel, Sirohi</div>"+
+      "<div class='center'>Ph: +91 97828 00000</div>"+
+      "<div class='line'></div>"+
+      "<div class='row'><span>Bill #"+o.id.slice(0,8).toUpperCase()+"</span><span>"+new Date(o.time).toLocaleString("en-IN")+"</span></div>"+
+      "<div class='row'><span>Room: "+o.room+"</span><span>Guest: "+o.guestName+"</span></div>"+
+      (o.guestPhone?"<div>Phone: "+o.guestPhone+"</div>":"")+
+      "<div class='line'></div>"+
+      "<table>"+itemsHtml+"</table>"+
+      "<div class='line'></div>"+
+      "<div class='row'><span>Subtotal</span><span>Rs."+subtotal+"</span></div>"+
+      (o.couponDiscount>0?"<div class='row'><span>Coupon ("+o.couponCode+")</span><span>-Rs."+o.couponDiscount+"</span></div>":"")+
+      (o.payNowDiscount>0?"<div class='row'><span>Online Pay Discount</span><span>-Rs."+o.payNowDiscount+"</span></div>":"")+
+      "<div class='line'></div>"+
+      "<div class='row bold big'><span>TOTAL</span><span>Rs."+o.total+"</span></div>"+
+      "<div class='line'></div>"+
+      "<div class='center bold' style='font-size:13px'>"+(o.paymentMethod==="PAID"?"✅ PAID — "+((o.collectionSource==="RECEPTION")?"Collected by Reception":"Direct Payment"):"⏳ ROOM BILL — Collect at Checkout")+"</div>"+
+      (o.paymentMethod==="PAY_LATER"?"<div class='center' style='margin-top:4px;font-size:11px'>Add to Room "+o.room+" bill at reception</div>":"")+
+      "<div class='line'></div>"+
+      (o.instructions?"<div>Note: "+o.instructions+"</div><div class='line'></div>":"")+
+      "<div class='center' style='font-size:10px'>Thank you! Visit again</div>"+
+      "<div class='center' style='font-size:9px;margin-top:4px'>Pure Vegetarian 🟢</div>"+
+      "</body></html>");
+    w.document.close();
+    setTimeout(function(){w.print()},400);
+  }
+
+  // Auto print bill for new orders
+  useEffect(function(){
+    orders.forEach(function(o){
+      if(!printedBillRef.current[o.id]&&o.status==="NEW"){
+        printedBillRef.current[o.id]=true;
+        printBill(o);
+      }
+    });
+  },[orders.length]);
+
   return React.createElement("div",{style:{minHeight:"100vh",background:"#08090d",color:"#e8e2d8",padding:16}},
-    React.createElement("h1",{style:{fontSize:22,fontWeight:800,color:"#60a5fa",marginBottom:14}},"💰 Cash Counter"),
-    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:14}},
-      [{l:"Paid",v:paid,c:"#22c55e"},{l:"Unpaid",v:unpaid,c:"#f59e0b"},{l:"Total",v:paid+unpaid,c:"#60a5fa"}].map((s,i)=>React.createElement("div",{key:i,style:{background:"#111318",borderRadius:10,padding:12,borderLeft:"3px solid "+s.c}},React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},s.l),React.createElement("div",{style:{color:s.c,fontSize:18,fontWeight:800}},"₹"+s.v)))
+    React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}},
+      React.createElement("h1",{style:{fontSize:22,fontWeight:800,color:"#60a5fa"}},"💰 Cash Counter"),
+      staff?React.createElement("div",{style:{fontSize:10,color:"#4ade80"}},"👤 "+staff.display_name):null
     ),
-    React.createElement("div",{style:{display:"flex",gap:5,marginBottom:14}},
-      ["ALL","PAID","PAY_LATER"].map(x=>React.createElement("button",{key:x,onClick:()=>setF(x),style:{background:f===x?"#60a5fa":"#111318",color:f===x?"#000":"#9ca3af",border:"none",padding:"6px 14px",borderRadius:7,fontWeight:700,fontSize:11,cursor:"pointer"}},x==="PAY_LATER"?"UNPAID":x))
+    // Summary cards
+    React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:6,marginBottom:14}},
+      [{l:"Total",v:totalBiz,c:"#60a5fa"},{l:"Our Cash",v:cashCollected,c:"#22c55e"},{l:"Online",v:directPaid-cashCollected>0?directPaid-cashCollected:0,c:"#4ade80"},{l:"Recep Collected",v:receptionCollected,c:"#8b5cf6"},{l:"Recep Due",v:receptionDue,c:"#f59e0b"}].map(function(s,i){return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:8,padding:10,borderLeft:"3px solid "+s.c}},
+        React.createElement("div",{style:{color:"#6b7280",fontSize:7,textTransform:"uppercase",letterSpacing:1}},s.l),
+        React.createElement("div",{style:{color:s.c,fontSize:16,fontWeight:800}},"₹"+s.v)
+      )})
     ),
-    list.length===0&&React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No orders"),
-    [...list].reverse().map(o=>React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid "+(o.paymentMethod==="PAID"?"#22c55e18":"#f59e0b18"),marginBottom:8,overflow:"hidden"}},
-      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:o.paymentMethod==="PAID"?"#22c55e06":"#f59e0b06"}},
-        React.createElement("div",null,React.createElement("span",{style:{fontWeight:800,fontSize:14}},"Room "+o.room),React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName)),
-        React.createElement("span",{style:{background:o.paymentMethod==="PAID"?"#22c55e":"#f59e0b",color:"#000",fontSize:8,fontWeight:800,padding:"2px 7px",borderRadius:20}},o.paymentMethod==="PAID"?"PAID":"ROOM")
-      ),
-      React.createElement("div",{style:{padding:"6px 12px"}},
-        o.items.map((it,i)=>React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"3px 0",fontSize:12}},React.createElement("span",null,it.name+" × "+it.qty),React.createElement("span",{style:{color:"#c8a44e"}},"₹"+it.price*it.qty))),
-        o.instructions&&React.createElement("div",{style:{fontSize:10,color:"#f59e0b",marginTop:4,padding:"4px 8px",background:"#1e1510",borderRadius:6}},"📝 "+o.instructions),
-        React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:6,paddingTop:6}},
-          o.couponDiscount>0&&React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#4ade80"}},React.createElement("span",null,"Coupon"),React.createElement("span",null,"−₹"+o.couponDiscount)),
-          o.payNowDiscount>0&&React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#4ade80"}},React.createElement("span",null,"Pay Now 5%"),React.createElement("span",null,"−₹"+o.payNowDiscount)),
-          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:15,marginTop:2}},React.createElement("span",null,"Total"),React.createElement("span",null,"₹"+o.total))
-        )
-      ),
-      o.paymentMethod==="PAY_LATER"&&o.status==="DELIVERED"&&React.createElement("div",{style:{padding:"0 12px 10px"}},
-        React.createElement("div",{style:{background:"#f59e0b0c",border:"1px solid #f59e0b20",borderRadius:8,padding:8,display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          React.createElement("span",{style:{fontSize:10,color:"#f59e0b"}},"⚠️ Unpaid → Reception"),
-          React.createElement("button",{onClick:function(){if(onCollect)onCollect(o.id,"RESTAURANT",staff?staff.display_name:"Cashier");else onUpdate(o.id,"DELIVERED","PAID")},style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 10px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},"Mark Paid")
+    // Filters
+    React.createElement("div",{style:{display:"flex",gap:4,marginBottom:14,flexWrap:"wrap"}},
+      [{k:"ALL",l:"All ("+orders.length+")"},{k:"PAID",l:"Paid"},{k:"UNPAID",l:"Due at Reception"}].map(function(x){return React.createElement("button",{key:x.k,onClick:function(){setF(x.k)},style:{background:f===x.k?"#60a5fa":"#111318",color:f===x.k?"#000":"#9ca3af",border:"none",padding:"6px 12px",borderRadius:7,fontWeight:700,fontSize:10,cursor:"pointer"}},x.l)})
+    ),
+    list.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No orders"):null,
+    // Order cards
+    list.slice().reverse().map(function(o){
+      var isPaid=o.paymentMethod==="PAID"||o.collectionSource;
+      return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid "+(isPaid?"#22c55e18":"#f59e0b18"),marginBottom:8,overflow:"hidden"}},
+        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:isPaid?"#22c55e06":"#f59e0b06"}},
+          React.createElement("div",null,
+            React.createElement("span",{style:{fontWeight:800,fontSize:14}},"Room "+o.room),
+            React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName+" • "+fmt(o.time))
+          ),
+          React.createElement("div",{style:{display:"flex",gap:3}},
+            React.createElement("span",{style:{background:o.collectionSource==="RECEPTION"?"#8b5cf6":o.collectionSource==="RESTAURANT"?"#22c55e":o.paymentMethod==="PAID"?"#4ade80":"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 6px",borderRadius:20}},
+              o.collectionSource==="RECEPTION"?"RECEP":o.collectionSource==="RESTAURANT"?"CASH":o.paymentMethod==="PAID"?"ONLINE":"DUE"
+            ),
+            React.createElement("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:7,fontWeight:700,padding:"2px 6px",borderRadius:20}},o.status)
+          )
+        ),
+        React.createElement("div",{style:{padding:"6px 12px"}},
+          o.items.map(function(it,i){return React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",padding:"2px 0",fontSize:12}},
+            React.createElement("span",null,it.name+" × "+it.qty),
+            React.createElement("span",{style:{color:"#c8a44e"}},"₹"+it.price*it.qty)
+          )}),
+          o.instructions?React.createElement("div",{style:{fontSize:10,color:"#f59e0b",marginTop:4,padding:"3px 6px",background:"#1e1510",borderRadius:4}},"📝 "+o.instructions):null,
+          React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:6,paddingTop:6}},
+            o.couponDiscount>0?React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#4ade80"}},React.createElement("span",null,"Coupon ("+o.couponCode+")"),React.createElement("span",null,"−₹"+o.couponDiscount)):null,
+            o.payNowDiscount>0?React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontSize:11,color:"#4ade80"}},React.createElement("span",null,"Online Discount 5%"),React.createElement("span",null,"−₹"+o.payNowDiscount)):null,
+            React.createElement("div",{style:{display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:15,marginTop:2}},React.createElement("span",null,"Total"),React.createElement("span",null,"₹"+o.total))
+          ),
+          o.collectedBy?React.createElement("div",{style:{fontSize:9,color:"#4ade80",marginTop:4}},"✅ "+o.collectedBy+" ("+o.collectionSource+")"):null
+        ),
+        // Action buttons
+        React.createElement("div",{style:{padding:"6px 12px 10px",display:"flex",gap:4}},
+          React.createElement("button",{onClick:function(){printBill(o)},style:{background:"#6b728018",color:"#9ca3af",border:"1px solid #6b728030",padding:"6px 10px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},"🖨️ Print Bill"),
+          !o.collectionSource&&o.paymentMethod==="PAY_LATER"?React.createElement("button",{onClick:function(){if(onCollect)onCollect(o.id,"RESTAURANT",staff?staff.display_name:"Cashier")},style:{flex:1,background:"#22c55e",color:"#000",border:"none",padding:"6px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},"💰 Cash Collected"):null
         )
       )
-    ))
+    })
   );
 }
 
@@ -1011,6 +1127,7 @@ function CouponsTab({staff}){
   var _nv=useState(""),newVal=_nv[0],setNewVal=_nv[1];
   var _nd=useState(""),newDesc=_nd[0],setNewDesc=_nd[1];
   var _nm=useState("1"),newMax=_nm[0],setNewMax=_nm[1];
+  var _nmin=useState(""),newMin=_nmin[0],setNewMin=_nmin[1];
   var _ng=useState(""),newGuest=_ng[0],setNewGuest=_ng[1];
   var _nr=useState(""),newRoom=_nr[0],setNewRoom=_nr[1];
   var _err=useState(""),err=_err[0],setErr=_err[1];
@@ -1035,14 +1152,15 @@ function CouponsTab({staff}){
     try{
       var r=await sb.from("custom_coupons").insert({
         code:newCode.toUpperCase().trim(),type:newType,value:Number(newVal),
-        description:newDesc||null,max_uses:Number(newMax)||1,
+        description:newDesc||null,max_uses:Number(newMax)||999999,
+        min_order:Number(newMin)||0,
         created_by:staff?staff.display_name:"Admin",
         assigned_to_guest:newGuest||null,assigned_to_room:newRoom||null,
         is_active:true
       });
       if(r.error){setErr(r.error.message||"Failed");return}
       setOk("Coupon "+newCode.toUpperCase()+" created!");
-      setNewCode("");setNewVal("");setNewDesc("");setNewGuest("");setNewRoom("");setNewMax("1");
+      setNewCode("");setNewVal("");setNewDesc("");setNewGuest("");setNewRoom("");setNewMax("1");setNewMin("");
       loadCoupons();
     }catch(e){setErr("Creation failed")}
   }
@@ -1053,12 +1171,11 @@ function CouponsTab({staff}){
   }
 
   async function editCoupon(id,field,oldVal){
-    var labels={value:"discount value",description:"description",max_uses:"max uses",code:"coupon code"};
+    var labels={value:"discount value",description:"description",max_uses:"max uses",code:"coupon code",min_order:"minimum order amount (₹)"};
     var newVal=prompt("Edit "+labels[field]+":",oldVal||"");
     if(newVal===null||newVal===String(oldVal))return;
     var upd={};
-    if(field==="value")upd.value=Number(newVal);
-    else if(field==="max_uses")upd.max_uses=Number(newVal);
+    if(field==="value"||field==="max_uses"||field==="min_order")upd[field]=Number(newVal);
     else upd[field]=newVal.trim();
     await sb.from("custom_coupons").update(upd).eq("id",id);
     setOk("Coupon updated!");loadCoupons();
@@ -1093,14 +1210,18 @@ function CouponsTab({staff}){
           )
         )
       ),
-      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:8}},
+      React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,marginBottom:8}},
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"VALUE *"),
           React.createElement("input",{value:newVal,onChange:function(e){setNewVal(e.target.value.replace(/\D/g,""))},placeholder:newType==="percent"?"e.g. 15":"e.g. 100",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
         ),
         React.createElement("div",null,
           React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"MAX USES"),
-          React.createElement("input",{value:newMax,onChange:function(e){setNewMax(e.target.value.replace(/\D/g,""))},placeholder:"1",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+          React.createElement("input",{value:newMax,onChange:function(e){setNewMax(e.target.value.replace(/\D/g,""))},placeholder:"999",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
+        ),
+        React.createElement("div",null,
+          React.createElement("div",{style:{fontSize:9,color:"#5e5447",marginBottom:3}},"MIN ORDER ₹"),
+          React.createElement("input",{value:newMin,onChange:function(e){setNewMin(e.target.value.replace(/\D/g,""))},placeholder:"0",inputMode:"numeric",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
         )
       ),
       React.createElement("div",{style:{marginBottom:8}},
@@ -1133,12 +1254,13 @@ function CouponsTab({staff}){
               React.createElement("span",{style:{fontSize:10,color:"#6b7280",marginLeft:6}},c.type==="percent"?c.value+"% off":"₹"+c.value+" off"),
               React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:2}},c.description||"No description"),
               c.assigned_to_guest?React.createElement("div",{style:{fontSize:9,color:"#8b5cf6"}},"👤 "+c.assigned_to_guest+(c.assigned_to_room?" (Room "+c.assigned_to_room+")":"")):null,
-              React.createElement("div",{style:{fontSize:9,color:exhausted?"#ef4444":"#6b7280",marginTop:2}},"Used: "+c.used_count+"/"+c.max_uses+(exhausted?" — EXHAUSTED":"")+" • By: "+(c.created_by||"Admin"))
+              React.createElement("div",{style:{fontSize:9,color:exhausted?"#ef4444":"#6b7280",marginTop:2}},"Used: "+c.used_count+"/"+c.max_uses+(exhausted?" — EXHAUSTED":"")+(c.min_order>0?" • Min order ₹"+c.min_order:"")+" • By: "+(c.created_by||"Admin"))
             ),
             React.createElement("div",{style:{display:"flex",gap:3,flexShrink:0}},
               React.createElement("button",{onClick:function(){editCoupon(c.id,"value",c.value)},style:{background:"#c8a44e12",color:"#c8a44e",border:"1px solid #c8a44e25",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Value"),
               React.createElement("button",{onClick:function(){editCoupon(c.id,"description",c.description)},style:{background:"#60a5fa12",color:"#60a5fa",border:"1px solid #60a5fa25",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Desc"),
               React.createElement("button",{onClick:function(){editCoupon(c.id,"max_uses",c.max_uses)},style:{background:"#8b5cf612",color:"#8b5cf6",border:"1px solid #8b5cf625",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Limit"),
+              React.createElement("button",{onClick:function(){editCoupon(c.id,"min_order",c.min_order||0)},style:{background:"#f59e0b12",color:"#f59e0b",border:"1px solid #f59e0b25",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Min ₹"),
               React.createElement("button",{onClick:function(){toggleCoupon(c.id,c.is_active)},style:{background:c.is_active?"#ef444418":"#22c55e18",color:c.is_active?"#ef4444":"#22c55e",border:"1px solid "+(c.is_active?"#ef444430":"#22c55e30"),padding:"3px 6px",borderRadius:4,fontSize:8,fontWeight:700,cursor:"pointer"}},c.is_active?"Disable":"Enable"),
               React.createElement("button",{onClick:function(){deleteCoupon(c.id,c.code)},style:{background:"#ef444412",color:"#ef4444",border:"1px solid #ef444425",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"🗑️")
             )
