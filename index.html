@@ -479,19 +479,26 @@ function Admin({orders,avail,setAvail,staff,collectPayment}){
 
 
 // === MENU EDITOR ===
+
+// === MENU EDITOR (Category-wise Add/Delete) ===
 function MenuEditor(){
   var _cats=useState([]),cats=_cats[0],setCats=_cats[1];
   var _items=useState([]),items=_items[0],setItems=_items[1];
   var _loading=useState(true),loading=_loading[0],setLoading=_loading[1];
-  var _newCat=useState(""),newCat=_newCat[0],setNewCat=_newCat[1];
-  var _newCatIcon=useState("🍽️"),newCatIcon=_newCatIcon[0],setNewCatIcon=_newCatIcon[1];
-  var _selCat=useState(null),selCat=_selCat[0],setSelCat=_selCat[1];
-  var _newItem=useState({name:"",desc:"",price:"",isNew:false}),newItem=_newItem[0],setNewItem=_newItem[1];
   var _msg=useState(""),msg=_msg[0],setMsg=_msg[1];
+  var _selCat=useState(null),selCat=_selCat[0],setSelCat=_selCat[1];
+  // New category form
+  var _nc=useState(""),ncName=_nc[0],setNcName=_nc[1];
+  var _ni=useState("🍽️"),ncIcon=_ni[0],setNcIcon=_ni[1];
+  // New item form
+  var _iName=useState(""),iName=_iName[0],setIName=_iName[1];
+  var _iDesc=useState(""),iDesc=_iDesc[0],setIDesc=_iDesc[1];
+  var _iPrice=useState(""),iPrice=_iPrice[0],setIPrice=_iPrice[1];
+  var _iNew=useState(false),iNew=_iNew[0],setINew=_iNew[1];
 
-  useEffect(function(){loadAll()},[]);
+  useEffect(function(){loadData()},[]);
 
-  async function loadAll(){
+  async function loadData(){
     setLoading(true);
     var cr=await sb.from("menu_categories").select("*").order("display_order");
     var ir=await sb.from("menu_items").select("*").order("category_id").order("display_order");
@@ -501,95 +508,126 @@ function MenuEditor(){
   }
 
   async function addCategory(){
-    if(!newCat.trim())return;
-    var maxOrder=cats.reduce(function(m,c){return Math.max(m,c.display_order||0)},0);
-    var r=await sb.from("menu_categories").insert({name:newCat.toUpperCase().trim(),icon:newCatIcon,display_order:maxOrder+1});
-    if(r.error){setMsg("Error: "+r.error.message);return}
-    setMsg("Category added! Refresh app to see changes.");
-    setNewCat("");loadAll();
+    if(!ncName.trim()){setMsg("Enter category name");return}
+    var mx=cats.reduce(function(m,c){return Math.max(m,c.display_order||0)},0);
+    var r=await sb.from("menu_categories").insert({name:ncName.toUpperCase().trim(),icon:ncIcon||"🍽️",display_order:mx+1,is_active:true});
+    if(r.error){setMsg("Error: "+(r.error.message||"Failed"));return}
+    setMsg("✅ Category '"+ncName.toUpperCase()+"' added!");setNcName("");setNcIcon("🍽️");loadData();
   }
 
-  async function deleteCategory(id){
-    if(!confirm("Delete this category and ALL its items?"))return;
+  async function deleteCat(id,name){
+    if(!confirm("Delete category '"+name+"' and ALL its items? This cannot be undone."))return;
     await sb.from("menu_items").delete().eq("category_id",id);
     await sb.from("menu_categories").delete().eq("id",id);
-    setMsg("Category deleted!");loadAll();
+    setMsg("🗑️ Category '"+name+"' deleted");if(selCat===id)setSelCat(null);loadData();
   }
 
   async function addItem(){
-    if(!selCat||!newItem.name.trim()||!newItem.price)return setMsg("Fill name, price & select category");
+    if(!selCat){setMsg("Select a category first (click on it)");return}
+    if(!iName.trim()||!iPrice){setMsg("Enter item name and price");return}
     var catItems=items.filter(function(i){return i.category_id===selCat});
-    var maxOrder=catItems.reduce(function(m,i){return Math.max(m,i.display_order||0)},0);
+    var mx=catItems.reduce(function(m,i){return Math.max(m,i.display_order||0)},0);
     var r=await sb.from("menu_items").insert({
-      category_id:selCat,name:newItem.name.trim(),description:newItem.desc.trim()||null,
-      price:Number(newItem.price),is_new:newItem.isNew,display_order:maxOrder+1
+      category_id:selCat,name:iName.trim(),description:iDesc.trim()||null,
+      price:Number(iPrice),is_new:iNew,is_available:true,display_order:mx+1
     });
-    if(r.error){setMsg("Error: "+r.error.message);return}
-    setMsg("Item added!");setNewItem({name:"",desc:"",price:"",isNew:false});loadAll();
+    if(r.error){setMsg("Error: "+(r.error.message||"Failed"));return}
+    setMsg("✅ '"+iName+"' added to "+cats.find(function(c){return c.id===selCat}).name);
+    setIName("");setIDesc("");setIPrice("");setINew(false);loadData();
   }
 
-  async function deleteItem(id){
-    if(!confirm("Delete this item?"))return;
+  async function deleteItem(id,name){
+    if(!confirm("Delete '"+name+"'?"))return;
     await sb.from("menu_items").delete().eq("id",id);
-    setMsg("Item deleted!");loadAll();
+    setMsg("🗑️ '"+name+"' deleted");loadData();
   }
 
-  if(loading)return React.createElement("div",{style:{color:"#5e5447",padding:20}},"Loading menu...");
+  async function updatePrice(id,newPrice){
+    await sb.from("menu_items").update({price:Number(newPrice)}).eq("id",id);
+    loadData();
+  }
+
+  if(loading)return React.createElement("div",{style:{color:"#5e5447",padding:20,textAlign:"center"}},"Loading menu from database...");
 
   return React.createElement("div",null,
-    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:12}},"✏️ Menu Editor"),
-    React.createElement("div",{style:{background:"#f59e0b12",border:"1px solid #f59e0b25",borderRadius:8,padding:"8px 12px",marginBottom:14,fontSize:10,color:"#f59e0b"}},"⚠️ Changes here update the DATABASE. The hardcoded menu in the app will need a code update to match. For now, the database is the source of truth for availability."),
-    msg?React.createElement("div",{style:{background:"#4ade8012",border:"1px solid #4ade8025",borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:11,color:"#4ade80"}},msg):null,
+    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:4}},"✏️ Menu Editor"),
+    React.createElement("div",{style:{fontSize:10,color:"#6b7280",marginBottom:14}},cats.length+" categories • "+items.length+" items in database"),
+    msg?React.createElement("div",{style:{background:msg.startsWith("✅")?"#4ade8012":msg.startsWith("🗑️")?"#f59e0b12":"#ef444412",border:"1px solid "+(msg.startsWith("✅")?"#4ade8025":msg.startsWith("🗑️")?"#f59e0b25":"#ef444425"),borderRadius:8,padding:"8px 12px",marginBottom:10,fontSize:11,color:msg.startsWith("✅")?"#4ade80":msg.startsWith("🗑️")?"#f59e0b":"#ef4444",display:"flex",justifyContent:"space-between"}},
+      React.createElement("span",null,msg),
+      React.createElement("button",{onClick:function(){setMsg("")},style:{background:"none",border:"none",color:"#6b7280",cursor:"pointer"}},"✕")
+    ):null,
 
-    // Add Category
-    React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:14,border:"1px solid #1a1f2e"}},
-      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#c8a44e",marginBottom:8}},"Add Category"),
+    // === ADD CATEGORY ===
+    React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,marginBottom:12,border:"1px solid #c8a44e15"}},
+      React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#c8a44e",marginBottom:8}},"➕ Add New Category"),
       React.createElement("div",{style:{display:"flex",gap:6}},
-        React.createElement("input",{value:newCatIcon,onChange:function(e){setNewCatIcon(e.target.value)},placeholder:"🍽️",style:{width:50,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px",fontSize:16,color:"#f2ede4",outline:"none",textAlign:"center"}}),
-        React.createElement("input",{value:newCat,onChange:function(e){setNewCat(e.target.value)},placeholder:"Category name",style:{flex:1,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}}),
-        React.createElement("button",{onClick:addCategory,style:{background:"#c8a44e",color:"#000",border:"none",padding:"8px 14px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Add")
+        React.createElement("input",{value:ncIcon,onChange:function(e){setNcIcon(e.target.value)},style:{width:44,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px",fontSize:18,color:"#f2ede4",outline:"none",textAlign:"center"}}),
+        React.createElement("input",{value:ncName,onChange:function(e){setNcName(e.target.value)},placeholder:"Category name (e.g. DESSERTS)",style:{flex:1,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}}),
+        React.createElement("button",{onClick:addCategory,style:{background:"#c8a44e",color:"#000",border:"none",padding:"8px 16px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer",whiteSpace:"nowrap"}},"+ Add")
       )
     ),
-    // Categories list
-    React.createElement("div",{style:{marginBottom:14}},
-      cats.map(function(c){
-        var catItems=items.filter(function(i){return i.category_id===c.id});
-        return React.createElement("div",{key:c.id,style:{background:"#111318",borderRadius:8,marginBottom:6,border:"1px solid #1a1f2e",overflow:"hidden"}},
-          React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 12px",background:selCat===c.id?"#c8a44e12":"transparent",cursor:"pointer"},onClick:function(){setSelCat(selCat===c.id?null:c.id)}},
-            React.createElement("span",{style:{fontSize:12,fontWeight:700,color:"#c8a44e"}},c.icon+" "+c.name+" ("+catItems.length+" items)"),
-            React.createElement("div",{style:{display:"flex",gap:4}},
-              React.createElement("span",{style:{fontSize:10,color:"#6b7280"}},selCat===c.id?"▼":"▶"),
-              React.createElement("button",{onClick:function(e){e.stopPropagation();deleteCategory(c.id)},style:{background:"#ef444418",color:"#ef4444",border:"1px solid #ef444430",padding:"2px 8px",borderRadius:4,fontSize:9,cursor:"pointer"}},"✕")
+
+    // === CATEGORIES LIST ===
+    cats.map(function(c){
+      var catItems=items.filter(function(i){return i.category_id===c.id});
+      var isOpen=selCat===c.id;
+      return React.createElement("div",{key:c.id,style:{background:"#111318",borderRadius:10,marginBottom:6,border:"1px solid "+(isOpen?"#c8a44e25":"#1a1f2e"),overflow:"hidden"}},
+        // Category header
+        React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"10px 12px",background:isOpen?"#c8a44e08":"transparent",cursor:"pointer"},onClick:function(){setSelCat(isOpen?null:c.id)}},
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:8}},
+            React.createElement("span",{style:{fontSize:18}},c.icon||"🍽️"),
+            React.createElement("div",null,
+              React.createElement("div",{style:{fontSize:13,fontWeight:700,color:isOpen?"#c8a44e":"#e8e2d8"}},c.name),
+              React.createElement("div",{style:{fontSize:10,color:"#6b7280"}},catItems.length+" items")
             )
           ),
-          selCat===c.id?React.createElement("div",{style:{padding:"6px 12px"}},
-            catItems.map(function(it){
-              return React.createElement("div",{key:it.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"4px 0",borderBottom:"1px solid #1a1f2e"}},
-                React.createElement("div",null,
-                  React.createElement("span",{style:{fontSize:11,fontWeight:600,color:"#e8e2d8"}},it.name),
-                  React.createElement("span",{style:{fontSize:10,color:"#6b7280",marginLeft:5}},"₹"+it.price),
-                  it.is_new?React.createElement("span",{style:{fontSize:8,color:"#f59e0b",marginLeft:4}},"NEW"):null
-                ),
-                React.createElement("button",{onClick:function(){deleteItem(it.id)},style:{background:"#ef444410",color:"#ef4444",border:"none",padding:"2px 6px",borderRadius:4,fontSize:9,cursor:"pointer"}},"✕")
-              )
-            }),
-            // Add item form
-            React.createElement("div",{style:{marginTop:8,padding:"8px 0",borderTop:"1px solid #1a1f2e"}},
-              React.createElement("div",{style:{display:"flex",gap:4,marginBottom:4}},
-                React.createElement("input",{value:newItem.name,onChange:function(e){setNewItem(Object.assign({},newItem,{name:e.target.value}))},placeholder:"Item name",style:{flex:2,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:4,padding:"6px 8px",fontSize:11,color:"#f2ede4",outline:"none"}}),
-                React.createElement("input",{value:newItem.price,onChange:function(e){setNewItem(Object.assign({},newItem,{price:e.target.value.replace(/\D/g,"")}))},placeholder:"₹",inputMode:"numeric",style:{width:60,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:4,padding:"6px 8px",fontSize:11,color:"#f2ede4",outline:"none"}})
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
+            React.createElement("span",{style:{fontSize:11,color:"#6b7280"}},isOpen?"▼":"▶"),
+            React.createElement("button",{onClick:function(e){e.stopPropagation();deleteCat(c.id,c.name)},style:{background:"#ef444412",color:"#ef4444",border:"1px solid #ef444425",padding:"3px 8px",borderRadius:5,fontSize:9,fontWeight:600,cursor:"pointer"}},"🗑️ Delete")
+          )
+        ),
+        // Items list (expanded)
+        isOpen?React.createElement("div",{style:{padding:"0 12px 12px"}},
+          // Add item form at top
+          React.createElement("div",{style:{background:"#0e0f15",borderRadius:8,padding:10,marginBottom:8,border:"1px solid #22c55e20"}},
+            React.createElement("div",{style:{fontSize:10,fontWeight:700,color:"#22c55e",marginBottom:6}},"➕ Add Item to "+c.name),
+            React.createElement("div",{style:{display:"flex",gap:4,marginBottom:4}},
+              React.createElement("input",{value:iName,onChange:function(e){setIName(e.target.value)},placeholder:"Item name *",style:{flex:2,background:"#111318",border:"1px solid #1f2028",borderRadius:5,padding:"7px 8px",fontSize:11,color:"#f2ede4",outline:"none"}}),
+              React.createElement("input",{value:iPrice,onChange:function(e){setIPrice(e.target.value.replace(/[^\d]/g,""))},placeholder:"Price ₹ *",inputMode:"numeric",style:{width:65,background:"#111318",border:"1px solid #1f2028",borderRadius:5,padding:"7px 8px",fontSize:11,color:"#f2ede4",outline:"none"}})
+            ),
+            React.createElement("div",{style:{display:"flex",gap:4}},
+              React.createElement("input",{value:iDesc,onChange:function(e){setIDesc(e.target.value)},placeholder:"Description (optional)",style:{flex:1,background:"#111318",border:"1px solid #1f2028",borderRadius:5,padding:"7px 8px",fontSize:11,color:"#f2ede4",outline:"none"}}),
+              React.createElement("label",{style:{display:"flex",alignItems:"center",gap:3,fontSize:10,color:"#f59e0b",whiteSpace:"nowrap",cursor:"pointer"}},
+                React.createElement("input",{type:"checkbox",checked:iNew,onChange:function(){setINew(!iNew)}}),
+                "NEW"
               ),
-              React.createElement("div",{style:{display:"flex",gap:4}},
-                React.createElement("input",{value:newItem.desc,onChange:function(e){setNewItem(Object.assign({},newItem,{desc:e.target.value}))},placeholder:"Description (optional)",style:{flex:1,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:4,padding:"6px 8px",fontSize:11,color:"#f2ede4",outline:"none"}}),
-                React.createElement("button",{onClick:addItem,style:{background:"#22c55e",color:"#000",border:"none",padding:"6px 12px",borderRadius:4,fontWeight:700,fontSize:10,cursor:"pointer"}},"+ Add")
+              React.createElement("button",{onClick:addItem,style:{background:"#22c55e",color:"#000",border:"none",padding:"7px 14px",borderRadius:5,fontWeight:700,fontSize:10,cursor:"pointer",whiteSpace:"nowrap"}},"+ Add")
+            )
+          ),
+          // Existing items
+          catItems.length===0?React.createElement("div",{style:{color:"#4b5563",fontSize:11,textAlign:"center",padding:12}},"No items in this category"):null,
+          catItems.map(function(it){
+            return React.createElement("div",{key:it.id,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"6px 0",borderBottom:"1px solid #1a1f2e"}},
+              React.createElement("div",{style:{flex:1,minWidth:0}},
+                React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4}},
+                  React.createElement("span",{style:{fontSize:12,fontWeight:600,color:"#e8e2d8"}},it.name),
+                  it.is_new?React.createElement("span",{style:{fontSize:7,background:"#f59e0b",color:"#000",padding:"1px 4px",borderRadius:3,fontWeight:800}},"NEW"):null,
+                  !it.is_available?React.createElement("span",{style:{fontSize:7,background:"#ef4444",color:"#fff",padding:"1px 4px",borderRadius:3,fontWeight:800}},"OFF"):null
+                ),
+                React.createElement("div",{style:{fontSize:9,color:"#5e5447",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},it.description||"")
+              ),
+              React.createElement("div",{style:{display:"flex",alignItems:"center",gap:4,flexShrink:0}},
+                React.createElement("span",{style:{fontSize:12,fontWeight:700,color:"#c8a44e"}},"₹"+it.price),
+                React.createElement("button",{onClick:function(){deleteItem(it.id,it.name)},style:{background:"#ef444410",color:"#ef4444",border:"none",padding:"3px 6px",borderRadius:4,fontSize:9,cursor:"pointer"}},"✕")
               )
             )
-          ):null
-        )
-      })
-    )
+          })
+        ):null
+      )
+    })
   );
 }
+
 
 // === REPORTS TAB ===
 function ReportsTab({orders}){
@@ -933,69 +971,116 @@ function LoginScreen({onLogin,panelType}){
 }
 
 // === RECEPTION PANEL ===
+
+// === RECEPTION PANEL (with alarm + print slips) ===
 function Reception({orders,onCollect,staff}){
-  var _d=useState(""),dateF=_d[0],setDateF=_d[1];
   var today=new Date().toISOString().slice(0,10);
-  var unpaid=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&o.status!=="CANCELLED"&&(!o.collectionSource)});
+  var unpaid=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
   var collected=orders.filter(function(o){return o.collectionSource==="RECEPTION"});
   var totalPending=unpaid.reduce(function(s,o){return s+o.total},0);
   var totalCollected=collected.reduce(function(s,o){return s+o.total},0);
+  var prevUnpaidRef=useRef(unpaid.length);
+
+  // Alarm when new PAY_LATER order arrives
+  useEffect(function(){
+    if(unpaid.length>prevUnpaidRef.current){startAlarm()}
+    prevUnpaidRef.current=unpaid.length;
+  },[unpaid.length]);
+
+  // Print slip for thermal printer
+  function printSlip(o){
+    var w=window.open("","_blank","width=300,height=500");
+    w.document.write("<html><head><title>Room Bill</title><style>"+
+      "body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:10px}"+
+      ".center{text-align:center}.bold{font-weight:bold}.line{border-top:1px dashed #000;margin:6px 0}"+
+      ".row{display:flex;justify-content:space-between}.big{font-size:16px}"+
+      "</style></head><body>"+
+      "<div class='center bold big'>7th Sky Fine Dine</div>"+
+      "<div class='center'>2nd Floor, 7th Sky Hotel</div>"+
+      "<div class='center'>Sirohi, Rajasthan</div>"+
+      "<div class='line'></div>"+
+      "<div class='row bold'><span>ROOM BILL</span><span>#"+o.id.slice(0,8).toUpperCase()+"</span></div>"+
+      "<div class='row'><span>Room:</span><span class='bold'>"+o.room+"</span></div>"+
+      "<div class='row'><span>Guest:</span><span>"+o.guestName+"</span></div>"+
+      "<div class='row'><span>Phone:</span><span>"+o.guestPhone+"</span></div>"+
+      "<div class='row'><span>Time:</span><span>"+fmt(o.time)+"</span></div>"+
+      "<div class='line'></div>"+
+      "<div class='bold'>ITEMS:</div>"+
+      o.items.map(function(it){return"<div class='row'><span>"+it.name+" x"+it.qty+"</span><span>Rs."+it.price*it.qty+"</span></div>"}).join("")+
+      "<div class='line'></div>"+
+      (o.couponDiscount>0?"<div class='row'><span>Coupon ("+o.couponCode+")</span><span>-Rs."+o.couponDiscount+"</span></div>":"")+
+      "<div class='row bold big'><span>TOTAL</span><span>Rs."+o.total+"</span></div>"+
+      "<div class='line'></div>"+
+      "<div class='center bold'>** COLLECT AT CHECKOUT **</div>"+
+      "<div class='center' style='margin-top:6px;font-size:10px'>Add to room "+o.room+" bill</div>"+
+      "<div class='center' style='font-size:10px'>"+new Date().toLocaleString("en-IN")+"</div>"+
+      "</body></html>");
+    w.document.close();
+    setTimeout(function(){w.print()},400);
+  }
 
   return React.createElement("div",{style:{minHeight:"100vh",background:"#08090d",color:"#e8e2d8",padding:16}},
     React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}},
       React.createElement("div",null,
         React.createElement("h1",{style:{fontSize:20,fontWeight:800,color:"#8b5cf6"}},"🏨 Reception Desk"),
-        React.createElement("div",{style:{color:"#6b7280",fontSize:11}},"Logged in: "+staff.display_name)
+        React.createElement("div",{style:{color:"#6b7280",fontSize:11}},"Logged in: "+(staff?staff.display_name:"Reception"))
       ),
-      React.createElement("div",{style:{fontSize:10,color:"#5e5447"}},today)
+      React.createElement("button",{onClick:function(){stopAlarm()},style:{background:"#ef444418",color:"#ef4444",border:"1px solid #ef444430",padding:"6px 12px",borderRadius:6,fontSize:10,fontWeight:700,cursor:"pointer"}},"🔇 Stop Alarm")
     ),
     // Stats
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:16}},
       React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,borderLeft:"3px solid #f59e0b"}},
-        React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},"Pending"),
-        React.createElement("div",{style:{color:"#f59e0b",fontSize:22,fontWeight:800}},"₹"+totalPending)
+        React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},"Pending Collection"),
+        React.createElement("div",{style:{color:"#f59e0b",fontSize:24,fontWeight:800}},"₹"+totalPending),
+        React.createElement("div",{style:{color:"#6b7280",fontSize:10}},unpaid.length+" orders")
       ),
       React.createElement("div",{style:{background:"#111318",borderRadius:10,padding:14,borderLeft:"3px solid #22c55e"}},
         React.createElement("div",{style:{color:"#6b7280",fontSize:9,textTransform:"uppercase",letterSpacing:1}},"Collected Today"),
-        React.createElement("div",{style:{color:"#22c55e",fontSize:22,fontWeight:800}},"₹"+totalCollected)
+        React.createElement("div",{style:{color:"#22c55e",fontSize:24,fontWeight:800}},"₹"+totalCollected),
+        React.createElement("div",{style:{color:"#6b7280",fontSize:10}},collected.length+" orders")
       )
     ),
-    // Pending Orders
-    React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#f59e0b",marginBottom:10}},"⏳ Pending Collection ("+unpaid.length+" orders)"),
-    unpaid.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"All payments collected! ✅"):null,
-    unpaid.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid #f59e0b18",marginBottom:8,overflow:"hidden"}},
-      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:"#f59e0b06"}},
+    // Alert banner for pending
+    unpaid.length>0?React.createElement("div",{style:{background:"#f59e0b15",border:"2px solid #f59e0b40",borderRadius:12,padding:"10px 14px",marginBottom:14,animation:"pulse2 1.5s infinite"}},
+      React.createElement("div",{style:{fontSize:15,fontWeight:800,color:"#f59e0b",textAlign:"center"}},"🔔 "+unpaid.length+" ROOM BILL"+(unpaid.length>1?"S":"")+" PENDING — ₹"+totalPending),
+      React.createElement("div",{style:{fontSize:10,color:"#f59e0b80",textAlign:"center"}},"Collect from guest at checkout")
+    ):React.createElement("div",{style:{textAlign:"center",padding:20,color:"#4ade80",fontSize:14,fontWeight:600}},"✅ All bills collected!"),
+    // Pending orders
+    unpaid.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid #f59e0b22",marginBottom:10,overflow:"hidden"}},
+      React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"10px 12px",background:"#f59e0b08"}},
         React.createElement("div",null,
-          React.createElement("span",{style:{fontWeight:800,fontSize:14,color:"#f59e0b"}},"🚪 Room "+o.room),
-          React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:6}},"• "+o.guestName)
+          React.createElement("span",{style:{fontWeight:800,fontSize:15,color:"#f59e0b"}},"🚪 Room "+o.room),
+          React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:6}},"• "+o.guestName+" • "+o.guestPhone)
         ),
-        React.createElement("span",{style:{fontWeight:800,fontSize:16,color:"#f59e0b"}},"₹"+o.total)
+        React.createElement("span",{style:{fontWeight:800,fontSize:18,color:"#f59e0b"}},"₹"+o.total)
       ),
       React.createElement("div",{style:{padding:"6px 12px"}},
-        o.items.map(function(it,i){return React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},
+        o.items.map(function(it,i){return React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:12,padding:"3px 0"}},
           React.createElement("span",null,it.name+" × "+it.qty),
           React.createElement("span",{style:{color:"#c8a44e"}},"₹"+it.price*it.qty)
         )}),
-        React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:6,paddingTop:6,fontSize:10,color:"#6b7280"}},"Order #"+o.id.slice(0,8)+" • "+fmt(o.time))
+        o.instructions?React.createElement("div",{style:{fontSize:10,color:"#f59e0b",marginTop:4,padding:"3px 6px",background:"#1e1510",borderRadius:4}},"📝 "+o.instructions):null,
+        React.createElement("div",{style:{fontSize:9,color:"#6b7280",marginTop:4}},"Order #"+o.id.slice(0,8)+" • "+fmt(o.time))
       ),
-      React.createElement("div",{style:{padding:"8px 12px"}},
-        React.createElement("button",{onClick:function(){onCollect(o.id,"RECEPTION",staff.display_name)},style:{width:"100%",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"11px",borderRadius:8,fontWeight:700,fontSize:13,cursor:"pointer"}},"✅ Payment Collected — ₹"+o.total)
+      React.createElement("div",{style:{padding:"8px 12px",display:"flex",gap:6}},
+        React.createElement("button",{onClick:function(){printSlip(o)},style:{flex:1,background:"#3b82f6",color:"#fff",border:"none",padding:"10px",borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer"}},"🖨️ Print Slip"),
+        React.createElement("button",{onClick:function(){onCollect(o.id,"RECEPTION",(staff?staff.display_name:"Reception"));stopAlarm()},style:{flex:1,background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"10px",borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer"}},"✅ Collected ₹"+o.total)
       )
     )}),
-    // Collected Today
+    // Collected today
     collected.length>0?React.createElement("div",null,
-      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e",margin:"20px 0 10px"}},"✅ Collected Today ("+collected.length+")"),
-      collected.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:"8px 12px",marginBottom:4,border:"1px solid #22c55e15",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+      React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e",margin:"20px 0 10px"}},"✅ Collected Today ("+collected.length+" orders — ₹"+totalCollected+")"),
+      collected.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:"8px 12px",marginBottom:4,border:"1px solid #22c55e12",display:"flex",justifyContent:"space-between",alignItems:"center"}},
         React.createElement("div",null,
-          React.createElement("span",{style:{fontSize:12,fontWeight:600}},"Room "+o.room),
-          React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName),
-          React.createElement("div",{style:{fontSize:9,color:"#4ade80"}},"Collected by: "+(o.collectedBy||"Reception"))
+          React.createElement("span",{style:{fontSize:12,fontWeight:600}},"Room "+o.room+" • "+o.guestName),
+          React.createElement("div",{style:{fontSize:9,color:"#4ade80"}},"Collected by: "+(o.collectedBy||"Reception")+" • "+fmt(o.time))
         ),
         React.createElement("span",{style:{color:"#22c55e",fontWeight:800,fontSize:14}},"₹"+o.total)
       )})
     ):null
   );
 }
+
 
 
 // === SUPABASE CLIENT ===
