@@ -451,7 +451,7 @@ function Admin({orders,avail,setAvail,staff,collectPayment,menu}){
       ))
     ),
     // Settlement
-    tab==="settle"&&React.createElement(SettlementTab,{orders:orders,staff:staff}),
+    tab==="settle"&&React.createElement(SettlementTab,{orders:orders,staff:staff,setOrders:setOrders}),
     // Reports
     tab==="reports"&&React.createElement(ReportsTab,{orders:orders}),
     // Coupons
@@ -687,7 +687,7 @@ function MenuEditor({onMenuChange}){
 // === SETTLEMENT TAB (with partial payments) ===
 
 // === SETTLEMENT TAB (tick per order) ===
-function SettlementTab({orders,staff}){
+function SettlementTab({orders,staff,setOrders}){
   var _hist=useState([]),history=_hist[0],setHistory=_hist[1];
   var _checked=useState({}),checked=_checked[0],setChecked=_checked[1];
   var _loading=useState(false),loading=_loading[0],setLoading=_loading[1];
@@ -744,6 +744,9 @@ function SettlementTab({orders,staff}){
         await sb.from("orders").update({settlement_status:"SETTLED_WITH_HOTEL",settlement_date:today}).eq("id",checkedOrders[i].id);
       }
       setMsg("✅ ₹"+checkedTotal+" from "+fromWho.trim()+" recorded! "+checkedOrders.length+" orders settled.");
+      // Update local state so settled orders disappear from pending
+      var settledIds={};checkedOrders.forEach(function(o){settledIds[o.id]=true});
+      if(setOrders)setOrders(function(prev){return prev.map(function(o){return settledIds[o.id]?Object.assign({},o,{settlementStatus:"SETTLED_WITH_HOTEL",settlementDate:today}):o})});
       setChecked({});setFromWho("");loadHistory();
     }catch(e){setMsg("Error: "+(e.message||"Failed"))}
     setLoading(false);
@@ -857,7 +860,7 @@ function ReportsTab({orders}){
           withItems.push({
             id:o.id,room:o.room_number,guestName:o.guest_name,total:Number(o.total),
             paymentMethod:o.payment_method,status:o.order_status,
-            collectionSource:o.collection_source,collectedBy:o.collected_by,
+            collectionSource:o.collection_source,collectedBy:o.collected_by,settlementStatus:o.settlement_status||null,settlementDate:o.settlement_date||null,
             time:new Date(o.created_at),couponCode:o.coupon_code,couponDiscount:Number(o.coupon_discount||0),
             items:(ir.data||[]).map(function(x){return{name:x.item_name,qty:x.quantity,price:Number(x.unit_price)}})
           });
@@ -1328,7 +1331,7 @@ function App(){
             instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount),
             couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount),total:Number(o.total),
             paymentMethod:o.payment_method,status:o.order_status,time:new Date(o.created_at),
-            collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,
+            collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,settlementStatus:o.settlement_status||null,settlementDate:o.settlement_date||null,
             items:(ir.data||[]).map(function(i){return{name:i.item_name,qty:i.quantity,price:Number(i.unit_price)}})
           });
         }
@@ -1380,7 +1383,7 @@ function App(){
           instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount),
           couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount),total:Number(o.total),
           paymentMethod:o.payment_method,status:o.order_status,time:new Date(o.created_at),
-          collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,
+          collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,settlementStatus:o.settlement_status||null,settlementDate:o.settlement_date||null,
           items:(ir.data||[]).map(function(i){return{name:i.item_name,qty:i.quantity,price:Number(i.unit_price)}})
         };
         setOrders(function(prev){if(prev.find(function(x){return x.id===o.id}))return prev;playSound();return prev.concat([newO])});
@@ -1388,7 +1391,7 @@ function App(){
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"orders"},function(payload){
         var o=payload.new;
         setOrders(function(prev){return prev.map(function(x){
-          return x.id===o.id?Object.assign({},x,{status:o.order_status,paymentMethod:o.payment_method,collectionSource:o.collection_source,collectedBy:o.collected_by}):x
+          return x.id===o.id?Object.assign({},x,{status:o.order_status,paymentMethod:o.payment_method,collectionSource:o.collection_source,collectedBy:o.collected_by,settlementStatus:o.settlement_status,settlementDate:o.settlement_date}):x
         })});
       })
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"menu_items"},function(){
