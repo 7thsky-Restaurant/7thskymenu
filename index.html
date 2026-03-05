@@ -115,7 +115,7 @@ var FALLBACK_MD=[
 {n:"SHAKES",i:"🥤",items:[{n:"Kit Kat Shake",d:"Thick, creamy with crushed Kit Kat",p:129},{n:"Oreo Shake",d:"Rich with crushed Oreo",p:129},{n:"Cold Coffee",d:"Chilled frothy coffee",p:99},{n:"Chocolate Shake",d:"Decadent & thick",p:129},{n:"Mango Shake",d:"Fresh mango, thick & luscious",p:129},{n:"Strawberry Shake",d:"Sweet & refreshing",p:129}]},
 {n:"HOT BEVERAGES",i:"☕",items:[{n:"Masala Chai",d:"Traditional spiced milk tea",p:39},{n:"Hot Coffee",d:"Freshly brewed with frothed milk",p:69},{n:"Milk (Cup)",d:"Warm cup of fresh milk",p:49},{n:"Milk (Glass)",d:"Full glass, hot or chilled",p:89}]}
 ];
-const COUPONS={WELCOME10:{t:"percent",v:10,l:"10% Off",desc:"Flat 10% off on your order"},SKY50:{t:"flat",v:50,l:"₹50 Off",desc:"Flat ₹50 off any order"},FIRST20:{t:"percent",v:20,l:"20% Off",desc:"20% off for first-time guests"},FESTIVE15:{t:"percent",v:15,l:"15% Off",desc:"Seasonal festive discount"}};
+var COUPONS={}; // All coupons managed from database via Admin panel
 
 
 // ═══ WELCOME ═══
@@ -152,8 +152,9 @@ function Welcome({room,onGo}){
 }
 
 // ═══ GUEST MENU ═══
-function GuestMenu({onOrder,room,gName,gPhone,avail,menu}){
+function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
   avail=avail||{};var MD=menu||FALLBACK_MD;
+  var activeCoupons=coupons||[];
   const[cart,setCart]=useState({});const[cat,setCat]=useState(0);const[q,setQ]=useState("");const[showCart,setSC]=useState(false);const[coupon,setCoupon]=useState("");const[applied,setApplied]=useState(null);const[cErr,setCErr]=useState("");const[instr,setInstr]=useState("");const[thanks,setThanks]=useState(null);
   const listRef=useRef(null);
   const add=(c,i)=>{const k=c+"-"+i;const av=avail[k];if(av&&!(av.note&&isTimeAvailable(av.note)))return;setCart(p=>({...p,[k]:(p[k]||0)+1}))};
@@ -161,7 +162,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu}){
   const items=useMemo(()=>Object.entries(cart).map(([k,qty])=>{const[c,i]=k.split("-").map(Number);return{...MD[c].items[i],qty,k,ci:c,ii:i}}),[cart]);
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
-  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();const c=COUPONS[k];if(c){setApplied(c);setCoupon(k);setCErr("")}else{if(typeof sb!=="undefined"){sb.from("custom_coupons").select("*").eq("code",k).eq("is_active",true).single().then(function(r){if(r.data&&r.data.used_count<r.data.max_uses){setApplied({t:r.data.type,v:Number(r.data.value),l:r.data.type==="percent"?r.data.value+"% Off":"₹"+r.data.value+" Off",desc:r.data.description||"Special discount"});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}}).catch(function(){setCErr("Invalid code");setApplied(null)})}else{setCErr("Invalid code");setApplied(null)}}};
+  const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();var found=activeCoupons.find(function(c){return c.code===k});if(found){setApplied({t:found.type,v:Number(found.value),l:found.type==="percent"?found.value+"% Off":"₹"+found.value+" Off",desc:found.description||"Discount"});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
   const order=(pay)=>{const pD=pay?Math.round((sub-disc)*0.05):0;const o={id:gid(),room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":"PAY_LATER",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
@@ -287,8 +288,8 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu}){
           cErr&&React.createElement("div",{style:{color:"#f87171",fontSize:11,marginBottom:6}},cErr),
           applied&&React.createElement("div",{style:{color:"#4ade80",fontSize:12,fontWeight:600,marginBottom:8}},"✓ "+applied.l+" — Save ₹"+disc),
           React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:1.5,marginBottom:6,textTransform:"uppercase"}},"Available Offers"),
-          Object.entries(COUPONS).map(([code,info])=>{const on=applied&&coupon===code;return React.createElement("div",{key:code,onClick:()=>!on&&tryCode(code),style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":"#c8a44e30"),borderRadius:8,padding:"8px 10px",cursor:"pointer",marginBottom:4}},
-            React.createElement("div",null,React.createElement("div",{style:{fontFamily:"monospace",fontSize:12,fontWeight:700,color:on?"#4ade80":"#c8a44e",letterSpacing:1}},code),React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:1}},info.desc)),
+          activeCoupons.filter(function(c){return!c.assigned_to_guest}).map(function(c){var on=applied&&coupon===c.code;return React.createElement("div",{key:c.code,onClick:function(){if(!on)tryCode(c.code)},style:{display:"flex",justifyContent:"space-between",alignItems:"center",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":"#c8a44e30"),borderRadius:8,padding:"8px 10px",cursor:"pointer",marginBottom:4}},
+            React.createElement("div",null,React.createElement("div",{style:{fontFamily:"monospace",fontSize:12,fontWeight:700,color:on?"#4ade80":"#c8a44e",letterSpacing:1}},c.code),React.createElement("div",{style:{fontSize:10,color:"#5e5447",marginTop:1}},c.description||c.type==="percent"?c.value+"% off":"₹"+c.value+" off")),
             React.createElement("div",{style:{background:on?"#4ade80":"#c8a44e18",color:on?"#000":"#c8a44e",fontSize:9,fontWeight:700,padding:"3px 8px",borderRadius:20}},on?"✓ APPLIED":"TAP")
           )})
         ),
@@ -1051,6 +1052,24 @@ function CouponsTab({staff}){
     loadCoupons();
   }
 
+  async function editCoupon(id,field,oldVal){
+    var labels={value:"discount value",description:"description",max_uses:"max uses",code:"coupon code"};
+    var newVal=prompt("Edit "+labels[field]+":",oldVal||"");
+    if(newVal===null||newVal===String(oldVal))return;
+    var upd={};
+    if(field==="value")upd.value=Number(newVal);
+    else if(field==="max_uses")upd.max_uses=Number(newVal);
+    else upd[field]=newVal.trim();
+    await sb.from("custom_coupons").update(upd).eq("id",id);
+    setOk("Coupon updated!");loadCoupons();
+  }
+
+  async function deleteCoupon(id,code){
+    if(!confirm("Delete coupon '"+code+"' permanently?"))return;
+    await sb.from("custom_coupons").delete().eq("id",id);
+    setOk("Coupon '"+code+"' deleted");loadCoupons();
+  }
+
   return React.createElement("div",null,
     React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#c8a44e",marginBottom:12}},"🎟️ Custom Coupons"),
     React.createElement("div",{style:{display:"flex",gap:4,marginBottom:14}},
@@ -1116,7 +1135,13 @@ function CouponsTab({staff}){
               c.assigned_to_guest?React.createElement("div",{style:{fontSize:9,color:"#8b5cf6"}},"👤 "+c.assigned_to_guest+(c.assigned_to_room?" (Room "+c.assigned_to_room+")":"")):null,
               React.createElement("div",{style:{fontSize:9,color:exhausted?"#ef4444":"#6b7280",marginTop:2}},"Used: "+c.used_count+"/"+c.max_uses+(exhausted?" — EXHAUSTED":"")+" • By: "+(c.created_by||"Admin"))
             ),
-            React.createElement("button",{onClick:function(){toggleCoupon(c.id,c.is_active)},style:{background:c.is_active?"#ef444418":"#22c55e18",color:c.is_active?"#ef4444":"#22c55e",border:"1px solid "+(c.is_active?"#ef444430":"#22c55e30"),padding:"4px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}},c.is_active?"Disable":"Enable")
+            React.createElement("div",{style:{display:"flex",gap:3,flexShrink:0}},
+              React.createElement("button",{onClick:function(){editCoupon(c.id,"value",c.value)},style:{background:"#c8a44e12",color:"#c8a44e",border:"1px solid #c8a44e25",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Value"),
+              React.createElement("button",{onClick:function(){editCoupon(c.id,"description",c.description)},style:{background:"#60a5fa12",color:"#60a5fa",border:"1px solid #60a5fa25",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Desc"),
+              React.createElement("button",{onClick:function(){editCoupon(c.id,"max_uses",c.max_uses)},style:{background:"#8b5cf612",color:"#8b5cf6",border:"1px solid #8b5cf625",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"✏️ Limit"),
+              React.createElement("button",{onClick:function(){toggleCoupon(c.id,c.is_active)},style:{background:c.is_active?"#ef444418":"#22c55e18",color:c.is_active?"#ef4444":"#22c55e",border:"1px solid "+(c.is_active?"#ef444430":"#22c55e30"),padding:"3px 6px",borderRadius:4,fontSize:8,fontWeight:700,cursor:"pointer"}},c.is_active?"Disable":"Enable"),
+              React.createElement("button",{onClick:function(){deleteCoupon(c.id,c.code)},style:{background:"#ef444412",color:"#ef4444",border:"1px solid #ef444425",padding:"3px 6px",borderRadius:4,fontSize:8,cursor:"pointer"}},"🗑️")
+            )
           )
         )
       })
@@ -1304,6 +1329,7 @@ function App(){
   var _o=useState([]),orders=_o[0],setOrders=_o[1];
   var _a=useState({}),avail=_a[0],setAvail=_a[1];
   var _m=useState(null),menu=_m[0],setMenu=_m[1];
+  var _cp=useState([]),dbCoupons=_cp[0],setDbCoupons=_cp[1];
   var _d=useState(false),dbReady=_d[0],setDbReady=_d[1];
   var _e=useState(null),dbError=_e[0],setDbError=_e[1];
   var _st=useState(null),staff=_st[0],setStaff=_st[1];
@@ -1363,6 +1389,10 @@ function App(){
           }).filter(function(c){return c.items.length>0});
           if(dbMenu.length>0)setMenu(dbMenu);
         }
+
+        // Load coupons from DB
+        var cpR=await sb.from("custom_coupons").select("*").eq("is_active",true).order("created_at");
+        if(cpR.data)setDbCoupons(cpR.data.filter(function(c){return c.used_count<c.max_uses}));
 
         setDbReady(true);
       }catch(e){
@@ -1506,7 +1536,7 @@ function App(){
 
   return React.createElement(React.Fragment,null,
     isAdmin?React.createElement(Nav):null,
-    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail,menu:menu}):null,
+    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail,menu:menu,coupons:dbCoupons}):null,
     panel==="kitchen"?React.createElement(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
     panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
     panel==="reception"?React.createElement(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
