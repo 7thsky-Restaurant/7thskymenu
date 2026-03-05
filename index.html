@@ -441,7 +441,13 @@ function Admin({orders,avail,setAvail,staff,collectPayment,menu}){
         ),
         o.items.map((it,i)=>React.createElement("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},React.createElement("span",null,it.name+"×"+it.qty),React.createElement("span",{style:{color:"#c8a44e"}},"₹"+it.price*it.qty))),
         o.collectedBy?React.createElement("div",{style:{fontSize:9,color:"#4ade80",marginTop:3}},"✅ Collected by: "+o.collectedBy+" ("+o.collectionSource+")"):null,
-        React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:13}},React.createElement("span",null,"Total"),React.createElement("span",{style:{color:"#c8a44e"}},"₹"+o.total))
+        React.createElement("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",alignItems:"center",fontWeight:800,fontSize:13}},React.createElement("span",null,"Total"),
+          React.createElement("div",{style:{display:"flex",alignItems:"center",gap:6}},
+            React.createElement("span",{style:{color:"#c8a44e"}},"₹"+o.total),
+            !o.collectionSource&&o.paymentMethod==="PAY_LATER"?React.createElement("button",{onClick:function(){if(collectPayment)collectPayment(o.id,"RESTAURANT",staff?staff.display_name:"Admin")},style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 10px",borderRadius:6,fontWeight:700,fontSize:9,cursor:"pointer"}},"💰 Collected"):null,
+            !o.collectionSource&&o.paymentMethod==="PAID"?React.createElement("span",{style:{fontSize:8,color:"#4ade80"}},"Online ✓"):null
+          )
+        )
       ))
     ),
     // Settlement
@@ -483,7 +489,7 @@ function Admin({orders,avail,setAvail,staff,collectPayment,menu}){
           if(cr.data&&ir.data){
             var dbMenu=cr.data.map(function(cat){
               var catItems=ir.data.filter(function(i){return i.category_id===cat.id});
-              return{n:cat.name,i:cat.icon||"🍽️",items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new?1:0}})};
+              return{n:cat.name,i:cat.icon||"🍽️",items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new||false}})};
             }).filter(function(c){return c.items.length>0});
             if(dbMenu.length>0)setMenu(dbMenu);
           }
@@ -1349,7 +1355,7 @@ function App(){
             var catItems=ir.data.filter(function(i){return i.category_id===cat.id});
             return{
               n:cat.name,i:cat.icon||"🍽️",
-              items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new?1:0}})
+              items:catItems.map(function(it){return{n:it.name,d:it.description||"",p:Number(it.price),nw:it.is_new||false}})
             };
           }).filter(function(c){return c.items.length>0});
           if(dbMenu.length>0)setMenu(dbMenu);
