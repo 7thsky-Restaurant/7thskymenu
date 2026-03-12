@@ -22,11 +22,18 @@ input::placeholder,textarea::placeholder{color:#5e5447}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
 <script>
+// Global error handler - prevents blank screen
+window.onerror=function(msg,url,line){
+  document.getElementById("root").innerHTML="<div style='color:#f87171;padding:20px;font-family:monospace'><h2>Error on line "+line+"</h2><p>"+msg+"</p><p>Please refresh the page</p></div>";
+};
+
+if(typeof React==="undefined"){document.getElementById("root").innerHTML="<p style='color:red;padding:20px'>React failed to load. Check internet connection.</p>";}
+
 const{useState,useEffect,useRef,useMemo,useCallback}=React;
 
 // URL Routing
@@ -34,9 +41,6 @@ const getURLParam=(k)=>new URLSearchParams(window.location.search).get(k);
 const initialPanel=getURLParam("panel")||"guest";
 const initialRoom=getURLParam("room")||"";
 const initialTable=getURLParam("table")||"";
-const isDineIn=!!initialTable;
-const seatLabel=isDineIn?"Table "+initialTable:"Room "+(initialRoom||"201");
-const seatNumber=isDineIn?initialTable:(initialRoom||"201");
 function orderSeat(o){return(o.room&&String(o.room).startsWith("T"))?"Table "+String(o.room).slice(1):"Room "+o.room}
 
 // UUID generator
@@ -80,6 +84,7 @@ function isTimeAvailable(note){
 
 // Excel export utility
 function exportToExcel(data,filename){
+  if(typeof XLSX==="undefined"){alert("Excel export not available. Please refresh and try again.");return}
   var ws=XLSX.utils.json_to_sheet(data);
   var wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,"Report");
@@ -120,46 +125,68 @@ var FALLBACK_MD=[
 {n:"SHAKES",i:"🥤",items:[{n:"Kit Kat Shake",d:"Thick, creamy with crushed Kit Kat",p:129},{n:"Oreo Shake",d:"Rich with crushed Oreo",p:129},{n:"Cold Coffee",d:"Chilled frothy coffee",p:99},{n:"Chocolate Shake",d:"Decadent & thick",p:129},{n:"Mango Shake",d:"Fresh mango, thick & luscious",p:129},{n:"Strawberry Shake",d:"Sweet & refreshing",p:129}]},
 {n:"HOT BEVERAGES",i:"☕",items:[{n:"Masala Chai",d:"Traditional spiced milk tea",p:39},{n:"Hot Coffee",d:"Freshly brewed with frothed milk",p:69},{n:"Milk (Cup)",d:"Warm cup of fresh milk",p:49},{n:"Milk (Glass)",d:"Full glass, hot or chilled",p:89}]}
 ];
-var COUPONS={}; // All coupons managed from database via Admin panel
 
+var COUPONS={};
 
-// ═══ WELCOME ═══
-function Welcome({room,onGo}){
-  const[nm,setNm]=useState("");const[ph,setPh]=useState("");const[err,setErr]=useState("");const[show,setShow]=useState(false);
-  useEffect(()=>{setTimeout(()=>setShow(true),200)},[]);
-  const go=()=>{if(!nm.trim())return setErr("Please enter your name");if(ph.trim().length<10)return setErr("Enter valid 10-digit number");onGo(nm.trim(),ph.trim())};
-  return(
-    React.createElement("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px"}},
-      React.createElement("div",{style:{opacity:show?1:0,transform:show?"translateY(0)":"translateY(24px)",transition:"all 1s cubic-bezier(.16,1,.3,1)",textAlign:"center",width:"100%",maxWidth:380}},
-        React.createElement("div",{style:{fontSize:52,marginBottom:10,filter:"drop-shadow(0 4px 24px rgba(200,164,78,0.25))"}},"✦"),
-        React.createElement("h1",{style:{fontSize:36,fontWeight:400,color:"#c8a44e",letterSpacing:3,fontFamily:"Georgia,serif"}},"7th Sky"),
-        React.createElement("div",{style:{fontSize:14,color:"#9b8e7e",letterSpacing:8,textTransform:"uppercase",marginBottom:6}},"Fine Dine"),
-        React.createElement("div",{style:{width:50,height:1,background:"linear-gradient(90deg,transparent,#c8a44e,transparent)",margin:"14px auto"}}),
-        React.createElement("div",{style:{fontSize:11,color:"#5e5447",letterSpacing:3,marginBottom:32}},"SIROHI, RAJASTHAN"),
-        React.createElement("div",{style:{background:"rgba(200,164,78,0.04)",borderRadius:22,padding:"28px 22px",border:"1px solid rgba(200,164,78,0.1)"}},
-          React.createElement("div",{style:{fontSize:20,color:"#f2ede4",marginBottom:2,fontFamily:"Georgia,serif"}},"Welcome, Guest"),
-          React.createElement("div",{style:{fontSize:13,color:"#9b8e7e",marginBottom:24}},React.createElement("b",{style:{color:"#c8a44e"}},seatLabel),React.createElement("span",null," • Pure Veg 🟢")),
-          React.createElement("div",{style:{marginBottom:14}},
-            React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Your Name"),
-            React.createElement("input",{value:nm,onChange:e=>{setNm(e.target.value);setErr("")},placeholder:"e.g. Rahul Sharma",style:{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:12,padding:"14px 16px",fontSize:15,color:"#f2ede4",outline:"none"}})
-          ),
-          React.createElement("div",{style:{marginBottom:18}},
-            React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Phone Number"),
-            React.createElement("input",{value:ph,onChange:e=>{setPh(e.target.value.replace(/\D/g,"").slice(0,10));setErr("")},placeholder:"10-digit mobile number",type:"tel",inputMode:"numeric",style:{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:12,padding:"14px 16px",fontSize:15,color:"#f2ede4",outline:"none"}})
-          ),
-          err&&React.createElement("div",{style:{color:"#f87171",fontSize:13,marginBottom:12}},err),
-          React.createElement("button",{onClick:go,style:{width:"100%",background:"linear-gradient(135deg,#c8a44e,#a6832a)",color:"#08090d",border:"none",padding:"15px",borderRadius:14,fontSize:16,fontWeight:700,cursor:"pointer",animation:"glow 3s infinite"}},"Explore Menu →")
+// === WELCOME SCREEN ===
+function Welcome({onGo}){
+  var _type=useState("room"),sType=_type[0],setSType=_type[1];
+  var _num=useState(""),sNum=_num[0],setSNum=_num[1];
+  var _nm=useState(""),nm=_nm[0],setNm=_nm[1];
+  var _ph=useState(""),ph=_ph[0],setPh=_ph[1];
+  var _err=useState(""),err=_err[0],setErr=_err[1];
+  var _show=useState(false),show=_show[0],setShow=_show[1];
+  useEffect(function(){setTimeout(function(){setShow(true)},200)},[]);
+
+  function go(){
+    if(!sNum.trim())return setErr("Enter "+(sType==="room"?"room":"table")+" number");
+    if(!nm.trim())return setErr("Please enter your name");
+    if(ph.trim().length<10)return setErr("Enter valid 10-digit number");
+    onGo(nm.trim(),ph.trim(),sType,sNum.trim());
+  }
+
+  var inp={width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:12,padding:"14px 16px",fontSize:15,color:"#f2ede4",outline:"none"};
+
+  return React.createElement("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px"}},
+    React.createElement("div",{style:{opacity:show?1:0,transform:show?"translateY(0)":"translateY(24px)",transition:"all 1s cubic-bezier(.16,1,.3,1)",textAlign:"center",width:"100%",maxWidth:380}},
+      React.createElement("div",{style:{fontSize:52,marginBottom:10,filter:"drop-shadow(0 4px 24px rgba(200,164,78,0.25))"}},"✦"),
+      React.createElement("h1",{style:{fontSize:36,fontWeight:400,color:"#c8a44e",letterSpacing:3,fontFamily:"Georgia,serif"}},"7th Sky"),
+      React.createElement("div",{style:{fontSize:14,color:"#9b8e7e",letterSpacing:8,textTransform:"uppercase",marginBottom:6}},"Fine Dine"),
+      React.createElement("div",{style:{width:50,height:1,background:"linear-gradient(90deg,transparent,#c8a44e,transparent)",margin:"14px auto"}}),
+      React.createElement("div",{style:{fontSize:11,color:"#5e5447",letterSpacing:3,marginBottom:28}},"SIROHI, RAJASTHAN"),
+      React.createElement("div",{style:{background:"rgba(200,164,78,0.04)",borderRadius:22,padding:"28px 22px",border:"1px solid rgba(200,164,78,0.1)"}},
+        React.createElement("div",{style:{fontSize:20,color:"#f2ede4",marginBottom:2,fontFamily:"Georgia,serif"}},"Welcome, Guest"),
+        React.createElement("div",{style:{fontSize:12,color:"#9b8e7e",marginBottom:20}},"Pure Vegetarian "+String.fromCharCode(55356,57143)),
+        React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:8,textAlign:"left",textTransform:"uppercase"}},"I am ordering from"),
+        React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16}},
+          React.createElement("button",{onClick:function(){setSType("room");setErr("")},style:{flex:1,background:sType==="room"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="room"?"#c8a44e":"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="room"?"#c8a44e":"#9b8e7e",fontSize:13,fontWeight:700}},"Hotel Room"),
+          React.createElement("button",{onClick:function(){setSType("table");setErr("")},style:{flex:1,background:sType==="table"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="table"?"#c8a44e":"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="table"?"#c8a44e":"#9b8e7e",fontSize:13,fontWeight:700}},"Dine-In Table")
         ),
-        React.createElement("div",{style:{marginTop:28,fontSize:11,color:"#5e5447",letterSpacing:2}},"✦ Where Every Meal is an Experience ✦")
-      )
+        React.createElement("div",{style:{marginBottom:14}},
+          React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},sType==="room"?"Room Number":"Table Number"),
+          React.createElement("input",{value:sNum,onChange:function(e){setSNum(e.target.value.replace(/\D/g,"").slice(0,4));setErr("")},placeholder:sType==="room"?"e.g. 201":"e.g. 5",type:"tel",inputMode:"numeric",style:Object.assign({},inp,{textAlign:"center",fontSize:20,fontWeight:700,color:"#c8a44e",letterSpacing:4})})
+        ),
+        React.createElement("div",{style:{marginBottom:14}},
+          React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Your Name"),
+          React.createElement("input",{value:nm,onChange:function(e){setNm(e.target.value);setErr("")},placeholder:"e.g. Rahul Sharma",style:inp})
+        ),
+        React.createElement("div",{style:{marginBottom:18}},
+          React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Phone Number"),
+          React.createElement("input",{value:ph,onChange:function(e){setPh(e.target.value.replace(/\D/g,"").slice(0,10));setErr("")},placeholder:"10-digit mobile number",type:"tel",inputMode:"numeric",style:inp})
+        ),
+        err?React.createElement("div",{style:{color:"#f87171",fontSize:13,marginBottom:12}},err):null,
+        React.createElement("button",{onClick:go,style:{width:"100%",background:"linear-gradient(135deg,#c8a44e,#a6832a)",color:"#08090d",border:"none",padding:"15px",borderRadius:14,fontSize:16,fontWeight:700,cursor:"pointer",animation:"glow 3s infinite"}},"Explore Menu")
+      ),
+      React.createElement("div",{style:{marginTop:28,fontSize:11,color:"#5e5447",letterSpacing:2}},"Where Every Meal is an Experience")
     )
   );
 }
 
 // ═══ GUEST MENU ═══
-function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
+function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons,isDineIn}){
   avail=avail||{};var MD=menu||FALLBACK_MD;
   var activeCoupons=coupons||[];
+  isDineIn=isDineIn||false;
   const[cart,setCart]=useState({});const[cat,setCat]=useState(0);const[q,setQ]=useState("");const[showCart,setSC]=useState(false);const[coupon,setCoupon]=useState("");const[applied,setApplied]=useState(null);const[cErr,setCErr]=useState("");const[instr,setInstr]=useState("");const[thanks,setThanks]=useState(null);
   const listRef=useRef(null);
   const add=(c,i)=>{const k=c+"-"+i;const av=avail[k];if(av&&!(av.note&&isTimeAvailable(av.note)))return;setCart(p=>({...p,[k]:(p[k]||0)+1}))};
@@ -168,7 +195,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
   const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();var found=activeCoupons.find(function(c){return c.code===k});if(found){var minReq=Number(found.min_order||0);if(minReq>0&&sub<minReq){setCErr("Minimum order ₹"+minReq+" required (your cart: ₹"+sub+")");setApplied(null);return}setApplied({t:found.type,v:Number(found.value),l:found.type==="percent"?found.value+"% Off":"₹"+found.value+" Off",desc:found.description||"Discount",min:minReq});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
-  const order=(pay)=>{const pD=isDineIn?0:(pay?Math.round((sub-disc)*0.05):0);const o={id:gid(),room:isDineIn?"T"+seatNumber:seatNumber,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":(isDineIn?"DINE_IN":"PAY_LATER"),orderType:isDineIn?"DINE_IN":"ROOM_SERVICE",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
+  const order=(pay)=>{const pD=isDineIn?0:(pay?Math.round((sub-disc)*0.05):0);const o={id:gid(),room:room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":(isDineIn?"DINE_IN":"PAY_LATER"),orderType:isDineIn?"DINE_IN":"ROOM_SERVICE",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
 
@@ -177,7 +204,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
     React.createElement("div",{style:{textAlign:"center",maxWidth:400,animation:"fadeUp 0.6s"}},
       React.createElement("div",{style:{fontSize:64,marginBottom:12}},"🙏"),
       React.createElement("h1",{style:{fontFamily:"Georgia,serif",fontSize:30,color:"#c8a44e",marginBottom:6,fontWeight:400}},"Thank You, "+gName+"!"),
-      React.createElement("p",{style:{color:"#9b8e7e",fontSize:14,lineHeight:1.6,marginBottom:24}},isDineIn?"Your order is being prepared. It will be served at your table shortly.":"Your order is being prepared. Delivery to Room "+seatNumber+" shortly."),
+      React.createElement("p",{style:{color:"#9b8e7e",fontSize:14,lineHeight:1.6,marginBottom:24}},isDineIn?"Your order is being prepared. It will be served at your table shortly.":"Your order is being prepared. Delivery to Room "+room+" shortly."),
       React.createElement("div",{style:{background:"#12131a",borderRadius:18,padding:22,border:"1px solid #1f2028",marginBottom:24}},
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:14}},
           React.createElement("div",null,React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Order"),React.createElement("div",{style:{color:"#dfc06e",fontSize:15,fontFamily:"monospace",marginTop:3}},"#"+thanks.id.slice(0,8).toUpperCase())),
@@ -216,7 +243,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
     // Header
     React.createElement("div",{style:{background:"#12131a",padding:"10px 12px",borderBottom:"1px solid #1f2028",flexShrink:0}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
-        React.createElement("div",null,React.createElement("div",{style:{fontFamily:"Georgia,serif",fontSize:18,color:"#c8a44e"}},"✦ 7th Sky"),React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2}}," "+seatLabel+" • 🟢 Pure Veg")),
+        React.createElement("div",null,React.createElement("div",{style:{fontFamily:"Georgia,serif",fontSize:18,color:"#c8a44e"}},"✦ 7th Sky"),React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2}},(room&&String(room).startsWith("T")?"Table "+String(room).slice(1):"Room "+room)+" • 🟢 Pure Veg")),
         React.createElement("div",{style:{textAlign:"right"}},React.createElement("div",{style:{fontSize:11,fontWeight:600,color:"#f2ede4"}},gName),React.createElement("div",{style:{fontSize:9,color:"#5e5447"}},gPhone))
       ),
       React.createElement("div",{style:{position:"relative"}},
@@ -1449,7 +1476,8 @@ function Reception({orders,onCollect,staff}){
 // === SUPABASE CLIENT ===
 var SUPA_URL="https://tbbpfdjakaiigtympkfw.supabase.co";
 var SUPA_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRiYnBmZGpha2FpaWd0eW1wa2Z3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MzUzNTIsImV4cCI6MjA4ODIxMTM1Mn0.Nozc33WvRVfNkKMph7yIfsehCI6A67eHi30HO03rkwI";
-var sb=window.supabase.createClient(SUPA_URL,SUPA_KEY);
+var sb=null;
+try{sb=window.supabase.createClient(SUPA_URL,SUPA_KEY)}catch(e){console.error("Supabase init failed:",e)}
 
 // === MAIN APP ===
 function App(){
@@ -1461,10 +1489,12 @@ function App(){
   var _d=useState(false),dbReady=_d[0],setDbReady=_d[1];
   var _e=useState(null),dbError=_e[0],setDbError=_e[1];
   var _st=useState(null),staff=_st[0],setStaff=_st[1];
-  var room=seatNumber;
+  var room=dynSeat.type==="table"?"T"+dynSeat.num:dynSeat.num||initialRoom||"201";
+  var guestIsDineIn=dynSeat.type==="table";
   var _g=useState(""),gName=_g[0],setGN=_g[1];
   var _p=useState(""),gPhone=_p[0],setGP=_p[1];
   var _w=useState(initialPanel!=="guest"),welcomed=_w[0],setW=_w[1];
+  var _dyn=useState({type:"",num:""}),dynSeat=_dyn[0],setDynSeat=_dyn[1];
 
   // Panels requiring login
   var needsLogin=panel==="admin"||panel==="cash"||panel==="reception";
@@ -1472,6 +1502,7 @@ function App(){
   // Load from Supabase
   useEffect(function(){
     async function init(){
+      if(!sb){setDbReady(true);setDbError("Database not connected");return}
       try{
         var today=new Date();today.setHours(0,0,0,0);
         var res=await sb.from("orders").select("*").gte("created_at",today.toISOString()).order("created_at",{ascending:true});
@@ -1660,11 +1691,11 @@ function App(){
     panels.map(function(p){return React.createElement("button",{key:p.id,onClick:function(){setPanel(p.id);window.history.replaceState(null,"","?panel="+p.id+(p.id==="guest"?"&room="+room:""))},style:{background:panel===p.id?p.c:"#111318",color:panel===p.id?"#000":"#6b7280",border:"1px solid "+(panel===p.id?p.c:"#1a1f2e"),padding:"5px 12px",borderRadius:7,fontSize:10,fontWeight:700,cursor:"pointer",whiteSpace:"nowrap"}},p.l)})
   )};
 
-  if(panel==="guest"&&!welcomed)return React.createElement(React.Fragment,null,isAdmin?React.createElement(Nav):null,React.createElement(Welcome,{room:room,onGo:function(n,p){setGN(n);setGP(p);setW(true)}}));
+  if(panel==="guest"&&!welcomed)return React.createElement(React.Fragment,null,isAdmin?React.createElement(Nav):null,React.createElement(Welcome,{onGo:function(n,p,sType,sNum){setGN(n);setGP(p);setDynSeat({type:sType,num:sNum});setW(true)}}));
 
   return React.createElement(React.Fragment,null,
     isAdmin?React.createElement(Nav):null,
-    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail,menu:menu,coupons:dbCoupons}):null,
+    panel==="guest"?React.createElement(GuestMenu,{onOrder:placeOrder,room:room,gName:gName,gPhone:gPhone,avail:avail,menu:menu,coupons:dbCoupons,isDineIn:guestIsDineIn}):null,
     panel==="kitchen"?React.createElement(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
     panel==="cash"?React.createElement(Cash,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
     panel==="reception"?React.createElement(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
