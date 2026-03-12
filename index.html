@@ -5,9 +5,8 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <meta name="theme-color" content="#08090d">
 <meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<title>7th Sky Fine Dine — Order</title>
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>✦</text></svg>">
+<title>7th Sky Fine Dine</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>*</text></svg>">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
 body{background:#08090d;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;overflow-x:hidden}
@@ -22,75 +21,46 @@ input::placeholder,textarea::placeholder{color:#5e5447}
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div id="root"></div>
 <script>
-const{useState,useEffect,useRef,useMemo,useCallback}=React;
+var R=React,ce=R.createElement,us=R.useState,ue=R.useEffect,ur=R.useRef,um=R.useMemo,uc=R.useCallback;
 
-// URL Routing
-const getURLParam=(k)=>new URLSearchParams(window.location.search).get(k);
-const initialPanel=getURLParam("panel")||"guest";
-const initialRoom=getURLParam("room")||"";
-function orderSeat(o){return(o.room&&String(o.room).startsWith("T"))?"Table "+String(o.room).slice(1):orderSeat(o)}
+// URL params
+var QS=new URLSearchParams(window.location.search);
+var PANEL=QS.get("panel")||"guest";
 
-// UUID generator
-const gid=()=>"10000000-1000-4000-8000-100000000000".replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)});
-const fmt=(d)=>new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"});
+// Supabase
+var SB_URL="https://tbbpfdjakaiigtympkfw.supabase.co";
+var SB_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRiYnBmZGpha2FpaWd0eW1wa2Z3Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI2MzUzNTIsImV4cCI6MjA4ODIxMTM1Mn0.Nozc33WvRVfNkKMph7yIfsehCI6A67eHi30HO03rkwI";
+var db=window.supabase.createClient(SB_URL,SB_KEY);
 
-// Soft notification sound
-const playSound=()=>{try{const c=new(window.AudioContext||window.webkitAudioContext)();[880,1100,1320].forEach((f,i)=>{const o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0.25,c.currentTime+i*0.18);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.18+0.2);o.start(c.currentTime+i*0.18);o.stop(c.currentTime+i*0.18+0.2)})}catch(e){}};
+// Helpers
+function uuid(){return"10000000-1000-4000-8000-100000000000".replace(/[018]/g,function(c){return(c^crypto.getRandomValues(new Uint8Array(1))[0]&15>>c/4).toString(16)})}
+function tf(d){return new Date(d).toLocaleTimeString("en-IN",{hour:"2-digit",minute:"2-digit"})}
+function seatName(r){return r&&String(r).startsWith("T")?"Table "+String(r).slice(1):"Room "+r}
 
-// LOUD persistent alarm for kitchen - loops until stopped
-var alarmInterval=null;
-function startAlarm(){
-  if(alarmInterval)return;
-  function buzz(){
-    try{var c=new(window.AudioContext||window.webkitAudioContext)();
-    [800,1000,800,1200,800,1000].forEach(function(f,i){
-      var o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);
-      o.frequency.value=f;o.type="square";
-      g.gain.setValueAtTime(0.4,c.currentTime+i*0.12);
-      g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.12+0.11);
-      o.start(c.currentTime+i*0.12);o.stop(c.currentTime+i*0.12+0.12);
-    })}catch(e){}
-  }
-  buzz();
-  alarmInterval=setInterval(buzz,2000);
-}
-function stopAlarm(){if(alarmInterval){clearInterval(alarmInterval);alarmInterval=null}}
+// Alarm
+var _alarmId=null;
+function alarmOn(){if(_alarmId)return;function b(){try{var c=new(window.AudioContext||window.webkitAudioContext)();[800,1000,800,1200].forEach(function(f,i){var o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="square";g.gain.setValueAtTime(0.4,c.currentTime+i*0.12);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.12+0.11);o.start(c.currentTime+i*0.12);o.stop(c.currentTime+i*0.12+0.12)})}catch(e){}}b();_alarmId=setInterval(b,2000)}
+function alarmOff(){if(_alarmId){clearInterval(_alarmId);_alarmId=null}}
 
-// Time-based availability check
-function isTimeAvailable(note){
-  if(!note)return false; // no note means manually off
-  var now=new Date();var h=now.getHours();
-  // Parse patterns like "7-11 AM only", "After 6 PM", "After 8 PM"
-  if(note.match(/after\s*(\d+)\s*pm/i)){var pm=parseInt(note.match(/after\s*(\d+)\s*pm/i)[1]);return h>=(pm===12?12:pm+12)}
-  if(note.match(/after\s*(\d+)\s*am/i)){var am=parseInt(note.match(/after\s*(\d+)\s*am/i)[1]);return h>=am}
-  if(note.match(/(\d+)[-–](\d+)\s*am/i)){var m=note.match(/(\d+)[-–](\d+)\s*am/i);return h>=parseInt(m[1])&&h<parseInt(m[2])}
-  if(note.match(/(\d+)\s*am[-–](\d+)\s*pm/i)){var m2=note.match(/(\d+)\s*am[-–](\d+)\s*pm/i);return h>=parseInt(m2[1])&&h<(parseInt(m2[2])+12)}
-  if(note.match(/(\d+)[-–](\d+)\s*pm/i)){var m3=note.match(/(\d+)[-–](\d+)\s*pm/i);return h>=(parseInt(m3[1])+12)&&h<(parseInt(m3[2])+12)}
-  return false; // can't parse = unavailable
-}
+// Soft beep
+function beep(){try{var c=new(window.AudioContext||window.webkitAudioContext)();[880,1100,1320].forEach(function(f,i){var o=c.createOscillator(),g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=f;o.type="sine";g.gain.setValueAtTime(0.25,c.currentTime+i*0.18);g.gain.exponentialRampToValueAtTime(0.01,c.currentTime+i*0.18+0.2);o.start(c.currentTime+i*0.18);o.stop(c.currentTime+i*0.18+0.2)})}catch(e){}}
 
-// Excel export utility
-function exportToExcel(data,filename){
-  var ws=XLSX.utils.json_to_sheet(data);
-  var wb=XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb,ws,"Report");
-  // Auto-width columns
-  var colWidths=Object.keys(data[0]||{}).map(function(k){
-    var max=k.length;
-    data.forEach(function(r){var v=String(r[k]||"");if(v.length>max)max=v.length});
-    return{wch:Math.min(max+2,40)};
-  });
-  ws["!cols"]=colWidths;
-  XLSX.writeFile(wb,filename);
-}
+// Time availability check
+function timeOk(note){if(!note)return false;var h=new Date().getHours();var m;if(m=note.match(/after\s*(\d+)\s*pm/i))return h>=(parseInt(m[1])===12?12:parseInt(m[1])+12);if(m=note.match(/after\s*(\d+)\s*am/i))return h>=parseInt(m[1]);if(m=note.match(/(\d+)[-](\d+)\s*am/i))return h>=parseInt(m[1])&&h<parseInt(m[2]);if(m=note.match(/(\d+)\s*am[-](\d+)\s*pm/i))return h>=parseInt(m[1])&&h<(parseInt(m[2])+12);if(m=note.match(/(\d+)[-](\d+)\s*pm/i))return h>=(parseInt(m[1])+12)&&h<(parseInt(m[2])+12);return false}
 
+// Excel export
+function toExcel(data,name){var ws=XLSX.utils.json_to_sheet(data);var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Report");var cw=Object.keys(data[0]||{}).map(function(k){var mx=k.length;data.forEach(function(r){var v=String(r[k]||"");if(v.length>mx)mx=v.length});return{wch:Math.min(mx+2,40)}});ws["!cols"]=cw;XLSX.writeFile(wb,name)}
 
-// ── Menu Data ──
+// Print helper
+function printHTML(title,html){var w=window.open("","_blank","width=300,height=500");if(!w)return;w.document.write("<html><head><title>"+title+"</title><style>body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:8px}.c{text-align:center}.b{font-weight:bold}.ln{border-top:1px dashed #000;margin:5px 0}.bg{font-size:16px}.rw{display:flex;justify-content:space-between}table{width:100%}td{padding:2px 0}</style></head><body>"+html+"</body></html>");w.document.close();setTimeout(function(){w.print()},400)}
+
+// Styles
+var S={inp:{width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:12,padding:"14px 16px",fontSize:15,color:"#f2ede4",outline:"none"},card:{background:"#111318",borderRadius:10,padding:12,border:"1px solid #1a1f2e"},gold:"#c8a44e",dark:"#08090d",txt:"#f2ede4",dim:"#5e5447",mid:"#9b8e7e",bg2:"#12131a"};
 var FALLBACK_MD=[
 {n:"BREAKFAST",i:"🌅",items:[{n:"Poha",d:"Flattened rice with peanuts & lime",p:99},{n:"Puri Bhaji",d:"Crispy puris with spiced potato gravy",p:149},{n:"Chole Bhature",d:"Fluffy bhatura with Punjabi chole",p:179,nw:1},{n:"Upma",d:"Savory semolina with vegetables",p:109},{n:"Sheera",d:"Sweet halwa with ghee & saffron",p:109},{n:"Bread Butter",d:"Toasted bread with salted butter",p:89},{n:"Bread Butter Jam",d:"Toast with butter & fruit preserve",p:99},{n:"Toast Butter",d:"Double-toasted bread with butter",p:99},{n:"Toast Butter Jam",d:"Crisp toast with butter & jam",p:109}]},
 {n:"SANDWICHES",i:"🥪",items:[{n:"Veg Sandwich",d:"Fresh veggies with green chutney",p:139},{n:"Veg Grill Sandwich",d:"Grilled with potato-veg filling",p:169},{n:"Veg Cheese Sandwich",d:"Fresh veggies with premium cheese",p:179},{n:"Veg Cheese Grill",d:"Grilled with melted cheese",p:199},{n:"Veg Club Sandwich",d:"Triple-layered with coleslaw",p:219},{n:"Toast Veg Club",d:"Toasted club with herb mayo",p:249},{n:"Toast Cheese Club",d:"Toasted club with extra cheese",p:259}]},
@@ -116,57 +86,73 @@ var FALLBACK_MD=[
 {n:"SHAKES",i:"🥤",items:[{n:"Kit Kat Shake",d:"Thick, creamy with crushed Kit Kat",p:129},{n:"Oreo Shake",d:"Rich with crushed Oreo",p:129},{n:"Cold Coffee",d:"Chilled frothy coffee",p:99},{n:"Chocolate Shake",d:"Decadent & thick",p:129},{n:"Mango Shake",d:"Fresh mango, thick & luscious",p:129},{n:"Strawberry Shake",d:"Sweet & refreshing",p:129}]},
 {n:"HOT BEVERAGES",i:"☕",items:[{n:"Masala Chai",d:"Traditional spiced milk tea",p:39},{n:"Hot Coffee",d:"Freshly brewed with frothed milk",p:69},{n:"Milk (Cup)",d:"Warm cup of fresh milk",p:49},{n:"Milk (Glass)",d:"Full glass, hot or chilled",p:89}]}
 ];
-var COUPONS={}; // All coupons managed from database via Admin panel
 
+var COUPONS={};
 
-// ═══ WELCOME ═══
-function Welcome({onGo}){
-  const[sType,setSType]=useState("room");const[sNum,setSNum]=useState("");const[nm,setNm]=useState("");const[ph,setPh]=useState("");const[err,setErr]=useState("");const[show,setShow]=useState(false);
-  useEffect(()=>{setTimeout(()=>setShow(true),200)},[]);
-  const go=()=>{if(!sNum.trim())return setErr("Enter "+(sType==="room"?"room":"table")+" number");if(!nm.trim())return setErr("Please enter your name");if(ph.trim().length<10)return setErr("Enter valid 10-digit number");onGo(nm.trim(),ph.trim(),sType,sNum.trim())};
-  const inp={width:"100%",background:"rgba(255,255,255,0.05)",border:"1px solid rgba(200,164,78,0.15)",borderRadius:12,padding:"14px 16px",fontSize:15,color:"#f2ede4",outline:"none"};
-  return(
-    React.createElement("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px"}},
-      React.createElement("div",{style:{opacity:show?1:0,transform:show?"translateY(0)":"translateY(24px)",transition:"all 1s cubic-bezier(.16,1,.3,1)",textAlign:"center",width:"100%",maxWidth:380}},
-        React.createElement("div",{style:{fontSize:52,marginBottom:10,filter:"drop-shadow(0 4px 24px rgba(200,164,78,0.25))"}},"*"),
-        React.createElement("h1",{style:{fontSize:36,fontWeight:400,color:"#c8a44e",letterSpacing:3,fontFamily:"Georgia,serif"}},"7th Sky"),
-        React.createElement("div",{style:{fontSize:14,color:"#9b8e7e",letterSpacing:8,textTransform:"uppercase",marginBottom:6}},"Fine Dine"),
-        React.createElement("div",{style:{width:50,height:1,background:"linear-gradient(90deg,transparent,#c8a44e,transparent)",margin:"14px auto"}}),
-        React.createElement("div",{style:{fontSize:11,color:"#5e5447",letterSpacing:3,marginBottom:28}},"SIROHI, RAJASTHAN"),
-        React.createElement("div",{style:{background:"rgba(200,164,78,0.04)",borderRadius:22,padding:"28px 22px",border:"1px solid rgba(200,164,78,0.1)"}},
-          React.createElement("div",{style:{fontSize:20,color:"#f2ede4",marginBottom:2,fontFamily:"Georgia,serif"}},"Welcome, Guest"),
-          React.createElement("div",{style:{fontSize:12,color:"#9b8e7e",marginBottom:16}},"Pure Vegetarian"),
-          React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:8,textAlign:"left",textTransform:"uppercase"}},"I am ordering from"),
-          React.createElement("div",{style:{display:"flex",gap:8,marginBottom:16}},
-            React.createElement("button",{onClick:()=>{setSType("room");setErr("")},style:{flex:1,background:sType==="room"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="room"?"#c8a44e":"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="room"?"#c8a44e":"#9b8e7e",fontSize:13,fontWeight:700}},"Hotel Room"),
-            React.createElement("button",{onClick:()=>{setSType("table");setErr("")},style:{flex:1,background:sType==="table"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="table"?"#c8a44e":"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="table"?"#c8a44e":"#9b8e7e",fontSize:13,fontWeight:700}},"Dine-In Table")
-          ),
-          React.createElement("div",{style:{marginBottom:14}},
-            React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},sType==="room"?"Room Number":"Table Number"),
-            React.createElement("input",{value:sNum,onChange:e=>{setSNum(e.target.value.replace(/\D/g,"").slice(0,4));setErr("")},placeholder:sType==="room"?"e.g. 201":"e.g. 5",type:"tel",inputMode:"numeric",style:Object.assign({},inp,{textAlign:"center",fontSize:20,fontWeight:700,color:"#c8a44e",letterSpacing:4})})
-          ),
-          React.createElement("div",{style:{marginBottom:14}},
-            React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Your Name"),
-            React.createElement("input",{value:nm,onChange:e=>{setNm(e.target.value);setErr("")},placeholder:"e.g. Rahul Sharma",style:inp})
-          ),
-          React.createElement("div",{style:{marginBottom:18}},
-            React.createElement("div",{style:{fontSize:10,color:"#5e5447",letterSpacing:2,marginBottom:5,textAlign:"left",textTransform:"uppercase"}},"Phone Number"),
-            React.createElement("input",{value:ph,onChange:e=>{setPh(e.target.value.replace(/\D/g,"").slice(0,10));setErr("")},placeholder:"10-digit mobile number",type:"tel",inputMode:"numeric",style:inp})
-          ),
-          err&&React.createElement("div",{style:{color:"#f87171",fontSize:13,marginBottom:12}},err),
-          React.createElement("button",{onClick:go,style:{width:"100%",background:"linear-gradient(135deg,#c8a44e,#a6832a)",color:"#08090d",border:"none",padding:"15px",borderRadius:14,fontSize:16,fontWeight:700,cursor:"pointer"}},"Explore Menu")
-        )
+// ========== WELCOME ==========
+function Welcome(props){
+  var onGo=props.onGo;
+  var s=us("room"),sType=s[0],setSType=s[1];
+  var n=us(""),sNum=n[0],setSNum=n[1];
+  var a=us(""),nm=a[0],setNm=a[1];
+  var p=us(""),ph=p[0],setPh=p[1];
+  var e=us(""),err=e[0],setErr=e[1];
+  var v=us(false),show=v[0];
+  ue(function(){setTimeout(function(){v[1](true)},200)},[]);
+
+  function go(){
+    if(!sNum.trim())return setErr("Enter "+(sType==="room"?"room":"table")+" number");
+    if(!nm.trim())return setErr("Please enter your name");
+    if(ph.trim().length<10)return setErr("Enter valid 10-digit number");
+    onGo(nm.trim(),ph.trim(),sType,sNum.trim());
+  }
+
+  return ce("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",padding:"24px 20px"}},
+    ce("div",{style:{opacity:show?1:0,transform:show?"translateY(0)":"translateY(24px)",transition:"all 1s cubic-bezier(.16,1,.3,1)",textAlign:"center",width:"100%",maxWidth:380}},
+      ce("div",{style:{fontSize:48,marginBottom:8,filter:"drop-shadow(0 4px 24px rgba(200,164,78,0.25))"}},"*"),
+      ce("h1",{style:{fontSize:34,fontWeight:400,color:S.gold,letterSpacing:3,fontFamily:"Georgia,serif"}},"7th Sky"),
+      ce("div",{style:{fontSize:13,color:S.mid,letterSpacing:8,textTransform:"uppercase",marginBottom:6}},"Fine Dine"),
+      ce("div",{style:{width:50,height:1,background:"linear-gradient(90deg,transparent,"+S.gold+",transparent)",margin:"12px auto"}}),
+      ce("div",{style:{fontSize:10,color:S.dim,letterSpacing:3,marginBottom:24}},"SIROHI, RAJASTHAN"),
+      ce("div",{style:{background:"rgba(200,164,78,0.04)",borderRadius:20,padding:"24px 20px",border:"1px solid rgba(200,164,78,0.1)"}},
+        ce("div",{style:{fontSize:18,color:S.txt,marginBottom:2,fontFamily:"Georgia,serif"}},"Welcome, Guest"),
+        ce("div",{style:{fontSize:11,color:S.mid,marginBottom:18}},"100% Pure Vegetarian"),
+
+        ce("div",{style:{fontSize:9,color:S.dim,letterSpacing:2,marginBottom:6,textAlign:"left",textTransform:"uppercase"}},"I AM ORDERING FROM"),
+        ce("div",{style:{display:"flex",gap:8,marginBottom:14}},
+          ce("button",{onClick:function(){setSType("room");setErr("")},style:{flex:1,background:sType==="room"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="room"?S.gold:"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="room"?S.gold:S.mid,fontSize:13,fontWeight:700}},"Hotel Room"),
+          ce("button",{onClick:function(){setSType("table");setErr("")},style:{flex:1,background:sType==="table"?"rgba(200,164,78,0.15)":"rgba(255,255,255,0.03)",border:"2px solid "+(sType==="table"?S.gold:"rgba(200,164,78,0.12)"),borderRadius:12,padding:"12px",cursor:"pointer",color:sType==="table"?S.gold:S.mid,fontSize:13,fontWeight:700}},"Dine-In Table")
+        ),
+
+        ce("div",{style:{marginBottom:12}},
+          ce("div",{style:{fontSize:9,color:S.dim,letterSpacing:2,marginBottom:4,textAlign:"left",textTransform:"uppercase"}},sType==="room"?"ROOM NUMBER":"TABLE NUMBER"),
+          ce("input",{value:sNum,onChange:function(e){setSNum(e.target.value.replace(/\D/g,"").slice(0,4));setErr("")},placeholder:sType==="room"?"e.g. 201":"e.g. 5",type:"tel",inputMode:"numeric",style:Object.assign({},S.inp,{textAlign:"center",fontSize:20,fontWeight:700,color:S.gold,letterSpacing:4})})
+        ),
+
+        ce("div",{style:{marginBottom:12}},
+          ce("div",{style:{fontSize:9,color:S.dim,letterSpacing:2,marginBottom:4,textAlign:"left",textTransform:"uppercase"}},"YOUR NAME"),
+          ce("input",{value:nm,onChange:function(e){setNm(e.target.value);setErr("")},placeholder:"e.g. Rahul Sharma",style:S.inp})
+        ),
+
+        ce("div",{style:{marginBottom:16}},
+          ce("div",{style:{fontSize:9,color:S.dim,letterSpacing:2,marginBottom:4,textAlign:"left",textTransform:"uppercase"}},"PHONE NUMBER"),
+          ce("input",{value:ph,onChange:function(e){setPh(e.target.value.replace(/\D/g,"").slice(0,10));setErr("")},placeholder:"10-digit mobile",type:"tel",inputMode:"numeric",style:S.inp})
+        ),
+
+        err?ce("div",{style:{color:"#f87171",fontSize:12,marginBottom:10}},err):null,
+        ce("button",{onClick:go,style:{width:"100%",background:"linear-gradient(135deg,"+S.gold+",#a6832a)",color:S.dark,border:"none",padding:"14px",borderRadius:14,fontSize:16,fontWeight:700,cursor:"pointer"}},"Explore Menu")
       )
     )
   );
 }
 
+// ========== GUEST MENU ==========
 // ═══ GUEST MENU ═══
 function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
+  var isDineIn=room&&String(room).startsWith("T");
+  var seatDisplay=seatName(room);
   avail=avail||{};var MD=menu||FALLBACK_MD;
   var activeCoupons=coupons||[];
-  var isDineIn=room&&String(room).startsWith("T");
-  var seatDisplay=isDineIn?"Table "+String(room).slice(1):"Room "+room;
   const[cart,setCart]=useState({});const[cat,setCat]=useState(0);const[q,setQ]=useState("");const[showCart,setSC]=useState(false);const[coupon,setCoupon]=useState("");const[applied,setApplied]=useState(null);const[cErr,setCErr]=useState("");const[instr,setInstr]=useState("");const[thanks,setThanks]=useState(null);
   const listRef=useRef(null);
   const add=(c,i)=>{const k=c+"-"+i;const av=avail[k];if(av&&!(av.note&&isTimeAvailable(av.note)))return;setCart(p=>({...p,[k]:(p[k]||0)+1}))};
@@ -175,7 +161,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
   const sub=items.reduce((s,i)=>s+i.p*i.qty,0);const tot=items.reduce((s,i)=>s+i.qty,0);
   const disc=useMemo(()=>!applied?0:applied.t==="percent"?Math.round(sub*applied.v/100):Math.min(applied.v,sub),[applied,sub]);
   const tryCode=(code)=>{const k=(code||coupon).toUpperCase().trim();var found=activeCoupons.find(function(c){return c.code===k});if(found){var minReq=Number(found.min_order||0);if(minReq>0&&sub<minReq){setCErr("Minimum order ₹"+minReq+" required (your cart: ₹"+sub+")");setApplied(null);return}setApplied({t:found.type,v:Number(found.value),l:found.type==="percent"?found.value+"% Off":"₹"+found.value+" Off",desc:found.description||"Discount",min:minReq});setCoupon(k);setCErr("")}else{setCErr("Invalid code");setApplied(null)}};
-  const order=(pay)=>{const isOnline=pay==="online";const pD=isDineIn?0:(isOnline?Math.round((sub-disc)*0.05):0);const o={id:gid(),room:room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay==="credit"||pay==="room"?"PAY_LATER":"PAID",payMode:pay,orderType:isDineIn?"DINE_IN":"ROOM_SERVICE",status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
+  const order=(pay)=>{const pD=pay?Math.round((sub-disc)*0.05):0;const o={id:gid(),room,guestName:gName,guestPhone:gPhone,items:items.map(i=>({name:i.n,qty:i.qty,price:i.p})),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pay?"PAID":"PAY_LATER",payMode:pay?"online":(isDineIn?"counter":"room"),status:"NEW",time:new Date()};onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false)};
   const filtered=useMemo(()=>{if(!q.trim())return null;const s=q.toLowerCase(),r=[];MD.forEach((c,ci)=>c.items.forEach((it,ii)=>{if(it.n.toLowerCase().includes(s)||it.d.toLowerCase().includes(s))r.push({...it,ci,ii})}));return r},[q]);
   const pickCat=(i)=>{setCat(i);setQ("");if(listRef.current)listRef.current.scrollTop=0};
 
@@ -190,7 +176,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
           React.createElement("div",null,React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Order"),React.createElement("div",{style:{color:"#dfc06e",fontSize:15,fontFamily:"monospace",marginTop:3}},"#"+thanks.id.slice(0,8).toUpperCase())),
           React.createElement("div",{style:{textAlign:"right"}},React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2,textTransform:"uppercase"}},"Total"),React.createElement("div",{style:{color:"#c8a44e",fontSize:20,fontWeight:800,marginTop:3}},"₹"+thanks.total))
         ),
-        React.createElement("div",{style:{display:"inline-block",background:thanks.paymentMethod==="PAID"?"#22c55e18":"#f59e0b18",color:thanks.paymentMethod==="PAID"?"#4ade80":"#fbbf24",fontSize:12,fontWeight:700,padding:"4px 14px",borderRadius:20,marginBottom:14}},thanks.payMode==="online"?"Paid Online":thanks.payMode==="counter"?"Pay at Counter":thanks.payMode==="credit"?"Credit Bill":thanks.payMode==="room"?"Added to Room Bill":"Payment Pending"),
+        React.createElement("div",{style:{display:"inline-block",background:thanks.paymentMethod==="PAID"?"#22c55e18":"#f59e0b18",color:thanks.paymentMethod==="PAID"?"#4ade80":"#fbbf24",fontSize:12,fontWeight:700,padding:"4px 14px",borderRadius:20,marginBottom:14}},thanks.paymentMethod==="PAID"?"💳 Paid Online":"🏨 Added to Room Bill"),
         React.createElement("div",{style:{height:1,background:"#1f2028",margin:"12px 0"}}),
         React.createElement("div",{style:{color:"#9b8e7e",fontSize:13,lineHeight:1.8}},"Need help? Call anytime",React.createElement("br"),React.createElement("span",{style:{color:"#c8a44e",fontSize:22,fontWeight:700}},"📞 +91 97828 00000"))
       ),
@@ -223,7 +209,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
     // Header
     React.createElement("div",{style:{background:"#12131a",padding:"10px 12px",borderBottom:"1px solid #1f2028",flexShrink:0}},
       React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
-        React.createElement("div",null,React.createElement("div",{style:{fontFamily:"Georgia,serif",fontSize:18,color:"#c8a44e"}},"7th Sky"),React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2}},seatDisplay+" - Pure Veg")),
+        React.createElement("div",null,React.createElement("div",{style:{fontFamily:"Georgia,serif",fontSize:18,color:"#c8a44e"}},"✦ 7th Sky"),React.createElement("div",{style:{fontSize:9,color:"#5e5447",letterSpacing:2}},seatDisplay+" • 🟢 Pure Veg")),
         React.createElement("div",{style:{textAlign:"right"}},React.createElement("div",{style:{fontSize:11,fontWeight:600,color:"#f2ede4"}},gName),React.createElement("div",{style:{fontSize:9,color:"#5e5447"}},gPhone))
       ),
       React.createElement("div",{style:{position:"relative"}},
@@ -271,7 +257,7 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
         ),
         // Guest badge
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",background:"#c8a44e08",border:"1px solid #c8a44e12",borderRadius:10,padding:"8px 12px",marginBottom:14}},
-          React.createElement("div",null,React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#f2ede4"}},gName),React.createElement("div",{style:{fontSize:10,color:"#5e5447"}},(room&&String(room).startsWith("T")?"Table "+String(room).slice(1):"Room "+room))),
+          React.createElement("div",null,React.createElement("div",{style:{fontSize:13,fontWeight:600,color:"#f2ede4"}},gName),React.createElement("div",{style:{fontSize:10,color:"#5e5447"}},seatDisplay)),
           React.createElement("div",{style:{fontSize:11,color:"#9b8e7e",alignSelf:"center"}},gPhone)
         ),
         // Cart items
@@ -314,15 +300,8 @@ function GuestMenu({onOrder,room,gName,gPhone,avail,menu,coupons}){
           React.createElement("div",{style:{display:"flex",justifyContent:"space-between"}},React.createElement("span",{style:{fontWeight:700,fontSize:15}},"Total"),React.createElement("span",{style:{fontWeight:800,color:"#c8a44e",fontSize:18}},"₹"+(sub-disc)))
         ),
         // Pay
-        React.createElement("div",{style:{display:"grid",gridTemplateColumns:isDineIn?"1fr 1fr 1fr":"1fr 1fr",gap:8,marginBottom:12}},
-          isDineIn?React.createElement(React.Fragment,null,
-            React.createElement("button",{onClick:()=>order("online"),style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"💳 Online",React.createElement("br"),React.createElement("span",{style:{fontSize:9,fontWeight:500,opacity:0.85}},"UPI / Card")),
-            React.createElement("button",{onClick:()=>order("counter"),style:{background:"linear-gradient(135deg,#60a5fa,#3b82f6)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"💰 Cash",React.createElement("br"),React.createElement("span",{style:{fontSize:9,fontWeight:500,opacity:0.85}},"Pay at counter")),
-            React.createElement("button",{onClick:()=>order("credit"),style:{background:"linear-gradient(135deg,#c9956b,#a87650)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"📋 Credit",React.createElement("br"),React.createElement("span",{style:{fontSize:9,fontWeight:500,opacity:0.85}},"Pay later"))
-          ):React.createElement(React.Fragment,null,
-            React.createElement("button",{onClick:()=>order("online"),style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:13,fontWeight:800,cursor:"pointer",textAlign:"center"}},"💳 Pay Now",React.createElement("br"),React.createElement("span",{style:{fontSize:10,fontWeight:500,opacity:0.85}},"5% off "+String.fromCharCode(8377)+(sub-disc-Math.round((sub-disc)*0.05)))),
-            React.createElement("button",{onClick:()=>order("room"),style:{background:"linear-gradient(135deg,#c9956b,#a87650)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:13,fontWeight:800,cursor:"pointer",textAlign:"center"}},"🏨 Pay Later",React.createElement("br"),React.createElement("span",{style:{fontSize:10,fontWeight:500,opacity:0.85}},"Add to room bill"))
-          )
+        React.createElement("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:8,marginBottom:12}},
+          isDineIn?ce("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}},ce("button",{onClick:function(){order(true)},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Online",ce("br"),ce("span",{style:{fontSize:9,fontWeight:500,opacity:0.85}},"UPI / Card")),ce("button",{onClick:function(){order(false)},style:{background:"linear-gradient(135deg,#60a5fa,#3b82f6)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay at Counter",ce("br"),ce("span",{style:{fontSize:9,fontWeight:500,opacity:0.85}},"Cash/UPI at desk"))):ce("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6}},ce("button",{onClick:function(){order(true)},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:13,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Now",ce("br"),ce("span",{style:{fontSize:10,fontWeight:500,opacity:0.85}},"5% off")),ce("button",{onClick:function(){order(false)},style:{background:"linear-gradient(135deg,#c9956b,#a87650)",color:"#fff",border:"none",padding:"14px 8px",borderRadius:12,fontSize:13,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Room Bill",ce("br"),ce("span",{style:{fontSize:10,fontWeight:500,opacity:0.85}},"Pay at checkout")))
         ),
         React.createElement("div",{style:{textAlign:"center",color:"#5e5447",fontSize:9}},"All prices inclusive of taxes • Pure Vegetarian 🟢")
       )
@@ -394,7 +373,7 @@ function Kitchen({orders,onUpdate}){
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(280px,1fr))",gap:12}},
       active.map(o=>React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:14,border:"2px solid "+col(o.status)+"40",overflow:"hidden",animation:o.status==="NEW"?"pulse2 1s infinite":"none"}},
         React.createElement("div",{style:{background:col(o.status)+"12",padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
-          React.createElement("div",null,React.createElement("span",{style:{fontWeight:800,fontSize:16,color:col(o.status)}},orderSeat(o)),React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:6}},"#"+o.id.slice(0,8).toUpperCase())),
+          React.createElement("div",null,React.createElement("span",{style:{fontWeight:800,fontSize:16,color:col(o.status)}},seatName(o.room)),React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:6}},"#"+o.id.slice(0,8).toUpperCase())),
           React.createElement("div",{style:{background:col(o.status),color:"#000",fontSize:9,fontWeight:800,padding:"3px 9px",borderRadius:20}},o.status)
         ),
         React.createElement("div",{style:{padding:"4px 14px 0",fontSize:11,color:"#6b7280"}},"Guest: ",React.createElement("span",{style:{color:"#9ca3af",fontWeight:600}},o.guestName)),
@@ -423,8 +402,7 @@ function Cash({orders,onUpdate,onCollect,staff}){
   const list=f==="ALL"?orders:f==="UNPAID"?orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}):orders.filter(function(o){return o.paymentMethod===f||o.collectionSource});
 
   var directPaid=orders.filter(function(o){return o.paymentMethod==="PAID"&&o.collectionSource!=="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  var receptionDue=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&!String(o.room).startsWith("T")}).reduce(function(s,o){return s+o.total},0);
-  var creditDue=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&String(o.room).startsWith("T")}).reduce(function(s,o){return s+o.total},0);
+  var receptionDue=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
   var receptionCollected=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
   var cashCollected=orders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
   var totalBiz=orders.reduce(function(s,o){return s+o.total},0);
@@ -456,7 +434,7 @@ function Cash({orders,onUpdate,onCollect,staff}){
       "<div class='line'></div>"+
       "<div class='row bold big'><span>TOTAL</span><span>Rs."+o.total+"</span></div>"+
       "<div class='line'></div>"+
-      "<div class='center bold' style='font-size:13px'>"+(o.paymentMethod==="PAID"?"PAID - "+((o.collectionSource==="RECEPTION")?"Collected by Reception":(o.collectedBy||"Direct Payment")):(String(o.room).startsWith("T")?"CREDIT BILL - Pay Later":"ROOM BILL - Collect at Checkout"))+"</div>"+
+      "<div class='center bold' style='font-size:13px'>"+(o.paymentMethod==="PAID"?"✅ PAID — "+((o.collectionSource==="RECEPTION")?"Collected by Reception":"Direct Payment"):"⏳ ROOM BILL — Collect at Checkout")+"</div>"+
       (o.paymentMethod==="PAY_LATER"?"<div class='center' style='margin-top:4px;font-size:11px'>Add to Room "+o.room+" bill at reception</div>":"")+
       "<div class='line'></div>"+
       (o.instructions?"<div>Note: "+o.instructions+"</div><div class='line'></div>":"")+
@@ -484,7 +462,7 @@ function Cash({orders,onUpdate,onCollect,staff}){
     ),
     // Summary cards
     React.createElement("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:6,marginBottom:14}},
-      [{l:"Total",v:totalBiz,c:"#60a5fa"},{l:"Our Cash",v:cashCollected,c:"#22c55e"},{l:"Online",v:directPaid-cashCollected>0?directPaid-cashCollected:0,c:"#4ade80"},{l:"Recep Collected",v:receptionCollected,c:"#8b5cf6"},{l:"Room Due",v:receptionDue,c:"#f59e0b"},{l:"Credit Due",v:creditDue,c:"#ef4444"}].map(function(s,i){return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:8,padding:10,borderLeft:"3px solid "+s.c}},
+      [{l:"Total",v:totalBiz,c:"#60a5fa"},{l:"Our Cash",v:cashCollected,c:"#22c55e"},{l:"Online",v:directPaid-cashCollected>0?directPaid-cashCollected:0,c:"#4ade80"},{l:"Recep Collected",v:receptionCollected,c:"#8b5cf6"},{l:"Recep Due",v:receptionDue,c:"#f59e0b"}].map(function(s,i){return React.createElement("div",{key:i,style:{background:"#111318",borderRadius:8,padding:10,borderLeft:"3px solid "+s.c}},
         React.createElement("div",{style:{color:"#6b7280",fontSize:7,textTransform:"uppercase",letterSpacing:1}},s.l),
         React.createElement("div",{style:{color:s.c,fontSize:16,fontWeight:800}},"₹"+s.v)
       )})
@@ -500,12 +478,12 @@ function Cash({orders,onUpdate,onCollect,staff}){
       return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,border:"1px solid "+(isPaid?"#22c55e18":"#f59e0b18"),marginBottom:8,overflow:"hidden"}},
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 12px",background:isPaid?"#22c55e06":"#f59e0b06"}},
           React.createElement("div",null,
-            React.createElement("span",{style:{fontWeight:800,fontSize:14}},orderSeat(o)),
+            React.createElement("span",{style:{fontWeight:800,fontSize:14}},seatName(o.room)),
             React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName+" • "+fmt(o.time))
           ),
           React.createElement("div",{style:{display:"flex",gap:3}},
             React.createElement("span",{style:{background:o.collectionSource==="RECEPTION"?"#8b5cf6":o.collectionSource==="RESTAURANT"?"#22c55e":o.paymentMethod==="PAID"?"#4ade80":"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 6px",borderRadius:20}},
-              o.collectionSource==="RECEPTION"?"RECEP":o.collectionSource==="RESTAURANT"?(o.collectedBy==="Online Payment"?"ONLINE":"CASH"):o.paymentMethod==="PAID"?"ONLINE":(String(o.room).startsWith("T")?"CREDIT":"ROOM")
+              o.collectionSource==="RECEPTION"?"RECEP":o.collectionSource==="RESTAURANT"?"CASH":o.paymentMethod==="PAID"?"ONLINE":"DUE"
             ),
             React.createElement("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:7,fontWeight:700,padding:"2px 6px",borderRadius:20}},o.status)
           )
@@ -569,7 +547,7 @@ function Admin({orders,avail,setAvail,staff,collectPayment,menu,setOrders}){
       orders.length===0?React.createElement("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No orders"):null,
       [...orders].reverse().map(o=>React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:10,padding:12,border:"1px solid #1a1f2e"}},
         React.createElement("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:6}},
-          React.createElement("span",{style:{fontWeight:800,fontSize:13}},orderSeat(o)+" ",React.createElement("span",{style:{color:"#6b7280",fontWeight:400,fontSize:10}},"• "+o.guestName)),
+          React.createElement("span",{style:{fontWeight:800,fontSize:13}},seatName(o.room)+" ",React.createElement("span",{style:{color:"#6b7280",fontWeight:400,fontSize:10}},"• "+o.guestName)),
           React.createElement("div",{style:{display:"flex",gap:3}},
             React.createElement("span",{style:{background:o.collectionSource?"#22c55e":"#f59e0b",color:"#000",fontSize:8,fontWeight:800,padding:"2px 7px",borderRadius:20}},o.collectionSource?(o.collectionSource==="RECEPTION"?"RECEP":"REST"):"UNPAID"),
             React.createElement("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:8,fontWeight:700,padding:"2px 7px",borderRadius:20}},o.status)
@@ -927,7 +905,7 @@ function SettlementTab({orders,staff,setOrders}){
           ),
           React.createElement("div",{style:{flex:1,minWidth:0}},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between"}},
-              React.createElement("span",{style:{fontSize:12,fontWeight:600,color:isChecked?"#4ade80":"#e8e2d8"}},orderSeat(o)+" • "+o.guestName),
+              React.createElement("span",{style:{fontSize:12,fontWeight:600,color:isChecked?"#4ade80":"#e8e2d8"}},seatName(o.room)+" • "+o.guestName),
               React.createElement("span",{style:{fontSize:14,fontWeight:800,color:isChecked?"#4ade80":"#8b5cf6"}},"₹"+o.total)
             ),
             React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},o.items.map(function(i){return i.name+"×"+i.qty}).join(", ")+" • "+fmt(o.time))
@@ -954,7 +932,7 @@ function SettlementTab({orders,staff,setOrders}){
       React.createElement("div",{style:{fontSize:12,fontWeight:700,color:"#f59e0b",marginBottom:8}},"⏳ Guests Not Paid Yet (₹"+guestPending+")"),
       React.createElement("div",{style:{fontSize:10,color:"#f59e0b80",marginBottom:6}},"Reception should collect at checkout"),
       pendingOrders.map(function(o){return React.createElement("div",{key:o.id,style:{display:"flex",justifyContent:"space-between",padding:"5px 0",borderBottom:"1px solid #1a1f2e",fontSize:11}},
-        React.createElement("span",null,orderSeat(o)+" • "+o.guestName+" • "+o.guestPhone),
+        React.createElement("span",null,seatName(o.room)+" • "+o.guestName+" • "+o.guestPhone),
         React.createElement("span",{style:{fontWeight:700,color:"#f59e0b"}},"₹"+o.total)
       )})
     ):null,
@@ -1073,7 +1051,7 @@ function ReportsTab({orders}){
             "Coupon Discount (₹)":o.couponDiscount||0,
             "Pay Now Discount (₹)":o.payNowDiscount||0,
             "Final Amount (₹)":o.total,
-            "Payment Mode":o.collectionSource==="RESTAURANT"?(o.collectedBy||"Direct"):o.paymentMethod==="PAY_LATER"?(String(o.room).startsWith("T")?"Credit/Dine-In":"Room Bill"):"Pending",
+            "Payment Mode":o.paymentMethod==="PAID"?"Online / Direct":"Room Bill (Pay Later)",
             "Collected By":o.collectedBy||"NOT COLLECTED",
             "Collection Source":o.collectionSource==="RESTAURANT"?"Restaurant":o.collectionSource==="RECEPTION"?"Reception":"Pending",
             "Order Status":o.status,
@@ -1118,7 +1096,7 @@ function ReportsTab({orders}){
           return React.createElement("div",{key:o.id,style:{padding:"8px 0",borderBottom:"1px solid #1a1f2e"}},
             React.createElement("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
               React.createElement("div",null,
-                React.createElement("span",{style:{fontWeight:700,fontSize:12}},orderSeat(o)),
+                React.createElement("span",{style:{fontWeight:700,fontSize:12}},seatName(o.room)),
                 React.createElement("span",{style:{color:"#6b7280",fontSize:10,marginLeft:5}},"• "+o.guestName),
                 React.createElement("div",{style:{fontSize:9,color:"#6b7280"}},fmt(o.time)+" • #"+o.id.slice(0,8))
               ),
@@ -1448,7 +1426,7 @@ function Reception({orders,onCollect,staff}){
       React.createElement("div",{style:{fontSize:14,fontWeight:700,color:"#22c55e",margin:"20px 0 10px"}},"✅ Collected Today ("+collected.length+" orders — ₹"+totalCollected+")"),
       collected.map(function(o){return React.createElement("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:"8px 12px",marginBottom:4,border:"1px solid #22c55e12",display:"flex",justifyContent:"space-between",alignItems:"center"}},
         React.createElement("div",null,
-          React.createElement("span",{style:{fontSize:12,fontWeight:600}},orderSeat(o)+" • "+o.guestName),
+          React.createElement("span",{style:{fontSize:12,fontWeight:600}},seatName(o.room)+" • "+o.guestName),
           React.createElement("div",{style:{fontSize:9,color:"#4ade80"}},"Collected by: "+(o.collectedBy||"Reception")+" • "+fmt(o.time))
         ),
         React.createElement("span",{style:{color:"#22c55e",fontWeight:800,fontSize:14}},"₹"+o.total)
@@ -1474,7 +1452,7 @@ function App(){
   var _d=useState(false),dbReady=_d[0],setDbReady=_d[1];
   var _e=useState(null),dbError=_e[0],setDbError=_e[1];
   var _st=useState(null),staff=_st[0],setStaff=_st[1];
-  var _rm=useState(initialRoom||"201"),room=_rm[0],setRoom=_rm[1];
+  var _rm=us(initialRoom||""),room=_rm[0],setRoom=_rm[1];
   var _g=useState(""),gName=_g[0],setGN=_g[1];
   var _p=useState(""),gPhone=_p[0],setGP=_p[1];
   var _w=useState(initialPanel!=="guest"),welcomed=_w[0],setW=_w[1];
@@ -1591,8 +1569,8 @@ function App(){
         instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,
         coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,
         payment_method:o.paymentMethod,order_status:"NEW",
-        collection_source:o.payMode==="online"?"RESTAURANT":o.payMode==="counter"?"RESTAURANT":null,
-        collected_by:o.payMode==="online"?"Online Payment":o.payMode==="counter"?"Pay at Counter":null
+        collection_source:o.paymentMethod==="PAID"?"RESTAURANT":null,
+        collected_by:o.paymentMethod==="PAID"?"Online Payment":null
       });
       await sb.from("order_items").insert(o.items.map(function(i){return{
         order_id:o.id,item_name:i.name,quantity:i.qty,unit_price:i.price,line_total:i.price*i.qty
