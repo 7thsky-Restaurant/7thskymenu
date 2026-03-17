@@ -311,14 +311,17 @@ function CashPanel(props){
 
   // Close table - mark all orders as collected
   function closeTable(tbl,payMode){
-    var src=payMode==="CREDIT"?null:"RESTAURANT";
-    var who=payMode==="CREDIT"?"CREDIT":(staff?staff.display_name:"Cashier");
+    var src=payMode==="CREDIT"?"CREDIT":"RESTAURANT";
+    var who=staff?staff.display_name:"Cashier";
+    var label=who+" ("+payMode+")";
+    // Mark all orders in this table as collected
     tbl.orders.forEach(function(o){
-      if(payMode!=="CREDIT"){onCollect(o.id,src,who+" ("+payMode+")")}
+      onCollect(o.id,src,label);
     });
+    // If credit, also create credit record
     if(payMode==="CREDIT"){
-      sb.from("credits").insert({customer_name:tbl.guest,customer_phone:tbl.phone||"",table_number:tbl.tableNum,total_amount:tbl.total,balance:tbl.total,status:"UNPAID",created_by:staff?staff.display_name:"Cashier"}).then(function(r){
-        if(r.error)console.error("Credit error:",r.error);
+      sb.from("credits").insert({customer_name:tbl.guest,customer_phone:tbl.phone||"",table_number:tbl.tableNum,total_amount:tbl.total,balance:tbl.total,status:"UNPAID",created_by:who}).then(function(r){
+        if(r.error){console.error("Credit error:",r.error);alert("Credit save failed: "+r.error.message)}
       });
     }
     setCloseMsg("Table "+tbl.tableNum+" closed! "+payMode+" Rs."+tbl.total);
@@ -619,7 +622,7 @@ function App(){
             if(upd.error)console.error("Session update error:",upd.error);
           }else{
             sessionId=uid();
-            var ins=await sb.from("table_sessions").insert({id:sessionId,table_number:tableNum,guest_name:o.guestName,guest_phone:o.guestPhone,status:"OPEN",total_amount:o.total,final_amount:o.total});
+            var ins=await sb.from("table_sessions").insert({id:sessionId,table_number:tableNum,guest_name:o.guestName,guest_phone:o.guestPhone,status:"OPEN",total_amount:o.total});
             if(ins.error){console.error("Session insert error:",ins.error);alert("Table session error: "+ins.error.message);sessionId=null}
           }
         }catch(se){console.error("Session error:",se);alert("Session catch: "+se.message);sessionId=null}
