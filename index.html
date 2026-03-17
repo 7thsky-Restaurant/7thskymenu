@@ -320,7 +320,7 @@ function CashPanel(props){
     });
     // If credit, also create credit record
     if(payMode==="CREDIT"){
-      sb.from("credits").insert({customer_name:tbl.guest,customer_phone:tbl.phone||"",table_number:tbl.tableNum,amount:tbl.total,total_amount:tbl.total,balance:tbl.total,status:"UNPAID",created_by:who}).then(function(r){
+      sb.from("credits").insert({customer_name:tbl.guest,customer_phone:tbl.phone||"",table_number:tbl.tableNum,amount:tbl.total,total_amount:tbl.total,balance:tbl.total,created_by:who}).then(function(r){
         if(r.error){console.error("Credit error:",r.error);alert("Credit save failed: "+r.error.message)}
       });
     }
