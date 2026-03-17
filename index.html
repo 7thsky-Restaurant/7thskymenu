@@ -176,6 +176,7 @@ function GuestMenu(props){
   );
 
   function ItemCard(p){var it=p.it,ci=p.ci,ii=p.ii;var k=ci+"-"+ii,qty=cart[k]||0,av2=avail[k],off=av2?(av2.note?!timeOk(av2.note):true):false;
+    if(off)return null;
     return h("div",{style:{background:off?"#0d0c0a":"#12131a",borderRadius:10,padding:"10px 12px",border:"1px solid "+(off?"#f59e0b15":qty?"#c8a44e25":"#1f2028"),opacity:off?0.5:1}},
       it.nw&&!off?h("div",{style:{float:"right",background:"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 5px",borderRadius:20}},"NEW"):null,
       h("div",{style:{fontSize:13,fontWeight:600,color:off?"#5e5447":"#f2ede4",marginBottom:2}},it.n),
@@ -465,7 +466,11 @@ function Admin(props){
         c.items.map(function(it,ai){var k=ci+"-"+ai,av=avail[k],off=av?(av.note?!timeOk(av.note):true):false;
           return h("div",{key:ai,style:{display:"flex",justifyContent:"space-between",padding:"4px 8px",background:off?"#120d08":"#111318",borderRadius:5,marginBottom:2,border:"1px solid "+(off?"#f59e0b18":"#1a1f2e")}},
             h("div",{style:{flex:1}},h("span",{style:{fontSize:11,fontWeight:600,color:off?"#5e5447":"#e8e2d8"}},it.n),h("span",{style:{fontSize:10,color:"#6b7280",marginLeft:4}},"Rs."+it.p)),
-            h("select",{onChange:function(e){var v=e.target.value;if(v==="on")setAvail(function(p){var n={};for(var x in p)n[x]=p[x];delete n[k];return n});else if(v==="off")setAvail(function(p){var n={};for(var x in p)n[x]=p[x];n[k]={note:""};return n});else setAvail(function(p){var n={};for(var x in p)n[x]=p[x];n[k]={note:v};return n})},value:!av?"on":av.note||"off",style:{background:"#08090d",color:"#9ca3af",border:"1px solid #1a1f2e",borderRadius:4,padding:"3px 5px",fontSize:9}},h("option",{value:"on"},"On"),h("option",{value:"off"},"Off"),h("option",{value:"After 6 PM"},"6PM+"),h("option",{value:"After 8 PM"},"8PM+"),h("option",{value:"7-11 AM only"},"7-11AM"))
+            h("select",{onChange:function(e){var v=e.target.value;var isOn=v==="on";var note=isOn?"":v==="off"?"":v;
+              if(isOn)setAvail(function(p){var n={};for(var x in p)n[x]=p[x];delete n[k];return n});
+              else setAvail(function(p){var n={};for(var x in p)n[x]=p[x];n[k]={note:note};return n});
+              sb.from("menu_items").select("id").eq("category_id",ci+1).order("display_order").then(function(r){if(r.data&&r.data[ai])sb.from("menu_items").update({is_available:isOn,availability_note:isOn?null:(note||null)}).eq("id",r.data[ai].id)});
+            },value:!av?"on":av.note||"off",style:{background:"#08090d",color:"#9ca3af",border:"1px solid #1a1f2e",borderRadius:4,padding:"3px 5px",fontSize:9}},h("option",{value:"on"},"On"),h("option",{value:"off"},"Off"),h("option",{value:"After 6 PM"},"6PM+"),h("option",{value:"After 8 PM"},"8PM+"),h("option",{value:"7-11 AM only"},"7-11AM"))
           )
         })
       )})
@@ -590,6 +595,23 @@ function App(){
           formatted.push({id:o.id,room:o.room_number,guestName:o.guest_name,guestPhone:o.guest_phone,instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount||0),couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount||0),total:Number(o.total),paymentMethod:o.payment_method,payMode:o.pay_mode,orderType:o.order_type,status:o.order_status,collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,settlementStatus:o.settlement_status||null,settlementDate:o.settlement_date||null,time:new Date(o.created_at),items:(ir.data||[]).map(function(x){return{name:x.item_name,qty:x.quantity,price:Number(x.unit_price)}})});
         }
         setOrders(formatted);
+        // Load menu availability from DB
+        var mir=await sb.from("menu_items").select("id,category_id,name,is_available,availability_note");
+        if(mir.data){
+          var avMap={};
+          var catR=await sb.from("menu_categories").select("id").eq("is_active",true).order("display_order");
+          var catIds=(catR.data||[]).map(function(c){return c.id});
+          mir.data.forEach(function(mi){
+            if(!mi.is_available){
+              var catIdx=catIds.indexOf(mi.category_id);
+              if(catIdx===-1)return;
+              var sameCategory=mir.data.filter(function(x){return x.category_id===mi.category_id});
+              var itemIdx=sameCategory.indexOf(mi);
+              if(itemIdx>=0)avMap[catIdx+"-"+itemIdx]={note:mi.availability_note||""};
+            }
+          });
+          setAvail(avMap);
+        }
         var cpR=await sb.from("custom_coupons").select("*").eq("is_active",true);
         if(cpR.data)setDbCoupons(cpR.data.filter(function(c){return c.used_count<c.max_uses}));
         setDbReady(true);
