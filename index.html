@@ -634,20 +634,35 @@ function App(){
       var sessionId=null;
       // For dine-in: create or find open table session
       if(o.orderType==="DINE_IN"&&isTable(o.room)){
-        var tableNum=String(o.room).slice(1);
-        var sr=await sb.from("table_sessions").select("*").eq("table_number",tableNum).eq("status","OPEN").order("created_at",{ascending:false}).limit(1);
-        if(sr.data&&sr.data.length>0){
-          sessionId=sr.data[0].id;
-          var newTotal=Number(sr.data[0].total_amount)+o.total;
-          await sb.from("table_sessions").update({total_amount:newTotal,guest_name:o.guestName,guest_phone:o.guestPhone}).eq("id",sessionId);
-        }else{
-          sessionId=uid();
-          await sb.from("table_sessions").insert({id:sessionId,table_number:tableNum,guest_name:o.guestName,guest_phone:o.guestPhone,status:"OPEN",total_amount:o.total,final_amount:o.total});
-        }
+        try{
+          var tableNum=String(o.room).slice(1);
+          var sr=await sb.from("table_sessions").select("*").eq("table_number",tableNum).eq("status","OPEN").order("created_at",{ascending:false}).limit(1);
+          if(sr.data&&sr.data.length>0){
+            sessionId=sr.data[0].id;
+            await sb.from("table_sessions").update({total_amount:Number(sr.data[0].total_amount)+o.total,guest_name:o.guestName,guest_phone:o.guestPhone}).eq("id",sessionId);
+          }else{
+            sessionId=uid();
+            await sb.from("table_sessions").insert({id:sessionId,table_number:tableNum,guest_name:o.guestName,guest_phone:o.guestPhone,status:"OPEN",total_amount:o.total,final_amount:o.total});
+          }
+        }catch(se){console.error("Session error:",se);sessionId=null}
       }
-      await sb.from("orders").insert({id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,payment_method:o.paymentMethod,pay_mode:o.payMode,order_type:o.orderType||"ROOM",order_status:"NEW",session_id:sessionId,collection_source:(o.payMode==="online"&&!isTable(o.room))?"RESTAURANT":null,collected_by:(o.payMode==="online"&&!isTable(o.room))?"Online":null});
-      await sb.from("order_items").insert(o.items.map(function(i){return{order_id:o.id,item_name:i.name,quantity:i.qty,unit_price:i.price,line_total:i.price*i.qty}}));
-    }catch(e){console.error("Save:",e)}
+      // Try full insert with new columns
+      var insertData={id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,payment_method:o.paymentMethod,order_status:"NEW",collection_source:(o.payMode==="online"&&!isTable(o.room))?"RESTAURANT":null,collected_by:(o.payMode==="online"&&!isTable(o.room))?"Online":null};
+      // Add new columns only if they might exist
+      insertData.pay_mode=o.payMode||null;
+      insertData.order_type=o.orderType||"ROOM";
+      if(sessionId)insertData.session_id=sessionId;
+      var res=await sb.from("orders").insert(insertData);
+      if(res.error){
+        console.error("Order insert error:",res.error);
+        // Fallback: try without new columns
+        var basic={id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,payment_method:o.paymentMethod,order_status:"NEW",collection_source:(o.payMode==="online"&&!isTable(o.room))?"RESTAURANT":null,collected_by:(o.payMode==="online"&&!isTable(o.room))?"Online":null};
+        var res2=await sb.from("orders").insert(basic);
+        if(res2.error){console.error("Fallback also failed:",res2.error);alert("Order save failed: "+res2.error.message);return}
+      }
+      var ir=await sb.from("order_items").insert(o.items.map(function(i){return{order_id:o.id,item_name:i.name,quantity:i.qty,unit_price:i.price,line_total:i.price*i.qty}}));
+      if(ir.error)console.error("Items error:",ir.error);
+    }catch(e){console.error("Save:",e);alert("Order error: "+e.message)}
   },[]);
 
   var updateStatus=useCallback(async function(id,st){setOrders(function(p){return p.map(function(o){return o.id===id?Object.assign({},o,{status:st}):o})});await sb.from("orders").update({order_status:st}).eq("id",id)},[]);
