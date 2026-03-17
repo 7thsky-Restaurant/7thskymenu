@@ -176,7 +176,11 @@ function GuestMenu(props){
   );
 
   function ItemCard(p){var it=p.it,ci=p.ci,ii=p.ii;var k=ci+"-"+ii,qty=cart[k]||0,off=!!avail[it.n];
-    if(off)return null;
+    if(off)return h("div",{style:{background:"#0d0c0a",borderRadius:10,padding:"10px 12px",border:"1px solid #1a1f2e",opacity:0.45}},
+      h("div",{style:{fontSize:13,fontWeight:600,color:"#5e5447",textDecoration:"line-through"}},it.n),
+      h("div",{style:{fontSize:10,color:"#3a3530",marginBottom:6}},it.d),
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:14,fontWeight:700,color:"#5e5447"}},"Rs."+it.p),h("span",{style:{background:"#ef444420",color:"#ef4444",fontSize:9,fontWeight:700,padding:"3px 10px",borderRadius:20}},"Not Available"))
+    );
     return h("div",{style:{background:off?"#0d0c0a":"#12131a",borderRadius:10,padding:"10px 12px",border:"1px solid "+(off?"#f59e0b15":qty?"#c8a44e25":"#1f2028"),opacity:off?0.5:1}},
       it.nw&&!off?h("div",{style:{float:"right",background:"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 5px",borderRadius:20}},"NEW"):null,
       h("div",{style:{fontSize:13,fontWeight:600,color:off?"#5e5447":"#f2ede4",marginBottom:2}},it.n),
