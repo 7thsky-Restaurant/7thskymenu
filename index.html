@@ -258,30 +258,163 @@ function Kitchen(props){
 }
 
 // === CASH COUNTER ===
+// === CASH COUNTER (with Table Sessions) ===
 function CashPanel(props){
   var orders=props.orders,onCollect=props.onCollect,staff=props.staff;
-  var ft=useState("ALL"),filter=ft[0],setFilter=ft[1];var pRef=useRef({});
+  var vw=useState("orders"),view=vw[0],setView=vw[1];
+  var ft=useState("ALL"),filter=ft[0],setFilter=ft[1];
+  var pRef=useRef({});
+  var ss=useState([]),sessions=ss[0],setSessions=ss[1];
+  var cmt=useState(""),closeMsg=cmt[0],setCloseMsg=cmt[1];
+
+  // Load open table sessions
+  useEffect(function(){loadSessions()},[]);
+  function loadSessions(){sb.from("table_sessions").select("*").eq("status","OPEN").order("created_at",{ascending:false}).then(function(r){if(r.data)setSessions(r.data)})}
+  // Refresh sessions when orders change
+  useEffect(function(){if(view==="tables")loadSessions()},[orders.length,view]);
+
   var list=filter==="ALL"?orders:filter==="UNPAID"?orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}):orders.filter(function(o){return o.collectionSource||o.paymentMethod==="PAID"});
   var cashAmt=orders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
   var onlineAmt=orders.filter(function(o){return o.payMode==="online"}).reduce(function(s,o){return s+o.total},0);
   var recepAmt=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
   var pendAmt=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
   var totalAmt=orders.reduce(function(s,o){return s+o.total},0);
+
   useEffect(function(){orders.forEach(function(o){if(!pRef.current[o.id]&&o.status==="NEW"){pRef.current[o.id]=true;openPrint(billHtml(o))}})},[orders.length]);
+
+  // Get orders for a table session
+  function tableOrders(tableNum){
+    return orders.filter(function(o){return isTable(o.room)&&String(o.room).slice(1)===tableNum});
+  }
+
+  // Print combined table bill
+  function printTableBill(sess){
+    var tOrds=tableOrders(sess.table_number);
+    var allItems=[];
+    tOrds.forEach(function(o){o.items.forEach(function(it){
+      var existing=allItems.find(function(x){return x.name===it.name&&x.price===it.price});
+      if(existing)existing.qty+=it.qty;else allItems.push({name:it.name,qty:it.qty,price:it.price});
+    })});
+    var total=tOrds.reduce(function(s,o){return s+o.total},0);
+    var items=allItems.map(function(it){return"<tr><td>"+it.name+" x"+it.qty+"</td><td style='text-align:right'>Rs."+it.price*it.qty+"</td></tr>"}).join("");
+    var html="<html><head><style>body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:8px}.c{text-align:center}.b{font-weight:bold}.ln{border-top:1px dashed #000;margin:5px 0}.rw{display:flex;justify-content:space-between}table{width:100%}</style></head><body>"+
+      "<div class='c b' style='font-size:16px'>7th Sky Fine Dine</div><div class='c'>2nd Floor, 7th Sky Hotel, Sirohi</div><div class='ln'></div>"+
+      "<div class='rw'><span class='b'>Table: "+sess.table_number+"</span><span>"+tOrds.length+" order"+(tOrds.length>1?"s":"")+"</span></div>"+
+      "<div class='rw'><span>"+sess.guest_name+"</span><span>"+(sess.guest_phone||"")+"</span></div><div class='ln'></div>"+
+      "<table>"+items+"</table><div class='ln'></div>"+
+      "<div class='rw b' style='font-size:16px'><span>TOTAL</span><span>Rs."+total+"</span></div><div class='ln'></div>"+
+      "<div class='c' style='font-size:10px'>"+new Date().toLocaleString("en-IN")+" | Pure Vegetarian</div></body></html>";
+    openPrint(html);
+  }
+
+  // Close table session
+  function closeTable(sess,payMode){
+    var tOrds=tableOrders(sess.table_number);
+    var total=tOrds.reduce(function(s,o){return s+o.total},0);
+    var src=payMode==="CREDIT"?null:"RESTAURANT";
+    var who=payMode==="CREDIT"?"CREDIT":(staff?staff.display_name:"Cashier");
+    var pm=payMode==="CREDIT"?"PAY_LATER":"PAID";
+
+    // Update session
+    sb.from("table_sessions").update({status:"CLOSED",payment_mode:payMode,final_amount:total,closed_by:who,closed_at:new Date().toISOString()}).eq("id",sess.id).then(function(){
+      // Update all orders in this session
+      var promises=tOrds.map(function(o){
+        if(payMode!=="CREDIT"){
+          if(onCollect)onCollect(o.id,src,who);
+          return sb.from("orders").update({payment_method:pm,collection_source:src,collected_by:who}).eq("id",o.id);
+        }
+        return Promise.resolve();
+      });
+      Promise.all(promises).then(function(){
+        // If credit, create credit record
+        if(payMode==="CREDIT"){
+          sb.from("credits").insert({customer_name:sess.guest_name,customer_phone:sess.guest_phone||"",table_number:sess.table_number,session_id:sess.id,total_amount:total,balance:total,status:"UNPAID",created_by:staff?staff.display_name:"Cashier"}).then(function(){
+            setCloseMsg("Table "+sess.table_number+" closed as CREDIT (Rs."+total+")");
+            loadSessions();
+          });
+        }else{
+          setCloseMsg("Table "+sess.table_number+" closed! "+payMode+" Rs."+total);
+          loadSessions();
+        }
+      });
+    });
+  }
+
   return h("div",{style:{minHeight:"100vh",background:"#08090d",padding:14}},
-    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:12}},h("h1",{style:{fontSize:20,fontWeight:800,color:"#60a5fa"}},"Cash Counter"),staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null),
-    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(85px,1fr))",gap:5,marginBottom:12}},
+    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:10}},h("h1",{style:{fontSize:20,fontWeight:800,color:"#60a5fa"}},"Cash Counter"),staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null),
+    // Summary
+    h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(85px,1fr))",gap:5,marginBottom:10}},
       [{l:"Total",v:totalAmt,c:"#60a5fa"},{l:"Cash",v:cashAmt,c:"#22c55e"},{l:"Online",v:onlineAmt,c:"#4ade80"},{l:"Reception",v:recepAmt,c:"#8b5cf6"},{l:"Pending",v:pendAmt,c:"#f59e0b"}].map(function(s,i){return h("div",{key:i,style:{background:"#111318",borderRadius:8,padding:8,borderLeft:"3px solid "+s.c}},h("div",{style:{color:"#6b7280",fontSize:7,letterSpacing:1}},s.l),h("div",{style:{color:s.c,fontSize:16,fontWeight:800}},"Rs."+s.v))})
     ),
-    h("div",{style:{display:"flex",gap:3,marginBottom:12}},["ALL","PAID","UNPAID"].map(function(x){return h("button",{key:x,onClick:function(){setFilter(x)},style:{background:filter===x?"#60a5fa":"#111318",color:filter===x?"#000":"#9ca3af",border:"none",padding:"5px 10px",borderRadius:6,fontWeight:700,fontSize:9,cursor:"pointer"}},x)})),
-    list.length===0?h("div",{style:{textAlign:"center",padding:24,color:"#4b5563"}},"No orders"):null,
-    list.slice().reverse().map(function(o){var paid=o.paymentMethod==="PAID"||o.collectionSource;return h("div",{key:o.id,style:{background:"#111318",borderRadius:8,border:"1px solid "+(paid?"#22c55e18":"#f59e0b18"),marginBottom:6}},
-      h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 10px",background:paid?"#22c55e06":"#f59e0b06"}},h("div",null,h("span",{style:{fontWeight:800,fontSize:13}},seat(o.room)),h("span",{style:{color:"#6b7280",fontSize:9,marginLeft:4}},o.guestName+" | "+fmt(o.time))),h("div",{style:{display:"flex",gap:2}},h("span",{style:{background:o.collectionSource==="RECEPTION"?"#8b5cf6":o.collectionSource==="RESTAURANT"?"#22c55e":o.payMode==="online"?"#4ade80":"#f59e0b",color:"#000",fontSize:6,fontWeight:800,padding:"2px 5px",borderRadius:20}},o.collectionSource==="RECEPTION"?"RECEP":o.collectionSource==="RESTAURANT"?"CASH":o.payMode==="online"?"ONLINE":"DUE"),h("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:6,fontWeight:700,padding:"2px 5px",borderRadius:20}},o.status))),
-      h("div",{style:{padding:"4px 10px"}},o.items.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#c8a44e"}},"Rs."+it.price*it.qty))}),
-        h("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontWeight:800,fontSize:14}},"Rs."+o.total),h("div",{style:{display:"flex",gap:3}},h("button",{onClick:function(){openPrint(billHtml(o))},style:{background:"#6b728018",color:"#9ca3af",border:"1px solid #6b728030",padding:"4px 8px",borderRadius:4,fontSize:8,cursor:"pointer"}},"Print"),!o.collectionSource&&o.paymentMethod==="PAY_LATER"?h("button",{onClick:function(){onCollect(o.id,"RESTAURANT",staff?staff.display_name:"Cashier")},style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 8px",borderRadius:4,fontWeight:700,fontSize:8,cursor:"pointer"}},"Collected"):null)),
-        o.collectedBy?h("div",{style:{fontSize:8,color:"#4ade80",marginTop:2}},"By: "+o.collectedBy):null
-      )
-    )})
+    // View toggle: Orders vs Tables
+    h("div",{style:{display:"flex",gap:3,marginBottom:10}},
+      [{k:"orders",l:"All Orders"},{k:"tables",l:"Open Tables ("+sessions.length+")"}].map(function(v){return h("button",{key:v.k,onClick:function(){setView(v.k)},style:{background:view===v.k?"#60a5fa":"#111318",color:view===v.k?"#000":"#9ca3af",border:"none",padding:"6px 12px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},v.l)})
+    ),
+    closeMsg?h("div",{style:{background:"#4ade8012",border:"1px solid #4ade8025",borderRadius:6,padding:"6px 10px",marginBottom:8,fontSize:10,color:"#4ade80",display:"flex",justifyContent:"space-between"}},h("span",null,closeMsg),h("button",{onClick:function(){setCloseMsg("")},style:{background:"none",border:"none",color:"#6b7280",cursor:"pointer"}},"x")):null,
+
+    // === TABLES VIEW ===
+    view==="tables"?h("div",null,
+      sessions.length===0?h("div",{style:{textAlign:"center",padding:30,color:"#4b5563"}},"No open tables"):null,
+      sessions.map(function(sess){
+        var tOrds=tableOrders(sess.table_number);
+        var total=tOrds.reduce(function(s,o){return s+o.total},0);
+        var allItems=[];
+        tOrds.forEach(function(o){o.items.forEach(function(it){
+          var ex=allItems.find(function(x){return x.name===it.name&&x.price===it.price});
+          if(ex)ex.qty+=it.qty;else allItems.push({name:it.name,qty:it.qty,price:it.price});
+        })});
+        return h("div",{key:sess.id,style:{background:"#111318",borderRadius:10,border:"2px solid #60a5fa30",marginBottom:10,overflow:"hidden"}},
+          // Header
+          h("div",{style:{background:"#60a5fa12",padding:"10px 12px",display:"flex",justifyContent:"space-between",alignItems:"center"}},
+            h("div",null,
+              h("div",{style:{fontWeight:800,fontSize:18,color:"#60a5fa"}},"Table "+sess.table_number),
+              h("div",{style:{fontSize:10,color:"#9ca3af"}},sess.guest_name+(sess.guest_phone?" | "+sess.guest_phone:""))
+            ),
+            h("div",{style:{textAlign:"right"}},
+              h("div",{style:{fontSize:8,color:"#6b7280"}},tOrds.length+" order"+(tOrds.length>1?"s":"")),
+              h("div",{style:{fontSize:22,fontWeight:800,color:"#c8a44e"}},"Rs."+total)
+            )
+          ),
+          // Orders breakdown
+          h("div",{style:{padding:"6px 12px"}},
+            tOrds.map(function(o,idx){return h("div",{key:o.id,style:{marginBottom:6,paddingBottom:6,borderBottom:idx<tOrds.length-1?"1px dashed #1f2028":"none"}},
+              h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:2}},
+                h("span",{style:{fontSize:9,color:"#60a5fa",fontWeight:700}},"Order "+(idx+1)+" | "+fmt(o.time)),
+                h("span",{style:{fontSize:11,fontWeight:700,color:"#c8a44e"}},"Rs."+o.total)
+              ),
+              o.items.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"1px 8px"}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#9ca3af"}},"Rs."+it.price*it.qty))}),
+              o.instructions?h("div",{style:{fontSize:9,color:"#f59e0b",padding:"2px 8px"}},"Note: "+o.instructions):null
+            )})
+          ),
+          // Combined items summary
+          h("div",{style:{background:"#0e0f15",margin:"0 12px",borderRadius:6,padding:8,marginBottom:8}},
+            h("div",{style:{fontSize:9,fontWeight:700,color:"#6b7280",marginBottom:4}},"COMBINED BILL"),
+            allItems.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"1px 0"}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#c8a44e"}},"Rs."+it.price*it.qty))}),
+            h("div",{style:{borderTop:"1px solid #1f2028",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",fontWeight:800,fontSize:15}},h("span",null,"TOTAL"),h("span",{style:{color:"#c8a44e"}},"Rs."+total))
+          ),
+          // Actions
+          h("div",{style:{padding:"0 12px 12px",display:"flex",gap:4,flexWrap:"wrap"}},
+            h("button",{onClick:function(){printTableBill(sess)},style:{background:"#3b82f6",color:"#fff",border:"none",padding:"8px 12px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Print Bill"),
+            h("button",{onClick:function(){closeTable(sess,"CASH")},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"8px 12px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Paid Cash"),
+            h("button",{onClick:function(){closeTable(sess,"ONLINE")},style:{background:"linear-gradient(135deg,#4ade80,#22c55e)",color:"#000",border:"none",padding:"8px 10px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Paid Online"),
+            h("button",{onClick:function(){if(confirm("Add Rs."+total+" to CREDIT for "+sess.guest_name+"?"))closeTable(sess,"CREDIT")},style:{background:"linear-gradient(135deg,#f59e0b,#d97706)",color:"#000",border:"none",padding:"8px 10px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Credit Bill")
+          )
+        )
+      })
+    ):null,
+
+    // === ORDERS VIEW ===
+    view==="orders"?h("div",null,
+      h("div",{style:{display:"flex",gap:3,marginBottom:10}},["ALL","PAID","UNPAID"].map(function(x){return h("button",{key:x,onClick:function(){setFilter(x)},style:{background:filter===x?"#60a5fa":"#111318",color:filter===x?"#000":"#9ca3af",border:"none",padding:"5px 10px",borderRadius:6,fontWeight:700,fontSize:9,cursor:"pointer"}},x)})),
+      list.length===0?h("div",{style:{textAlign:"center",padding:24,color:"#4b5563"}},"No orders"):null,
+      list.slice().reverse().map(function(o){var paid=o.paymentMethod==="PAID"||o.collectionSource;return h("div",{key:o.id,style:{background:"#111318",borderRadius:8,border:"1px solid "+(paid?"#22c55e18":"#f59e0b18"),marginBottom:6}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",padding:"6px 10px",background:paid?"#22c55e06":"#f59e0b06"}},h("div",null,h("span",{style:{fontWeight:800,fontSize:13}},seat(o.room)),h("span",{style:{color:"#6b7280",fontSize:9,marginLeft:4}},o.guestName+" | "+fmt(o.time))),h("div",{style:{display:"flex",gap:2}},h("span",{style:{background:o.collectionSource==="RECEPTION"?"#8b5cf6":o.collectionSource==="RESTAURANT"?"#22c55e":o.payMode==="online"?"#4ade80":"#f59e0b",color:"#000",fontSize:6,fontWeight:800,padding:"2px 5px",borderRadius:20}},o.collectionSource==="RECEPTION"?"RECEP":o.collectionSource==="RESTAURANT"?"CASH":o.payMode==="online"?"ONLINE":"DUE"),h("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:6,fontWeight:700,padding:"2px 5px",borderRadius:20}},o.status))),
+        h("div",{style:{padding:"4px 10px"}},o.items.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#c8a44e"}},"Rs."+it.price*it.qty))}),
+          h("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:4,paddingTop:4,display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontWeight:800,fontSize:14}},"Rs."+o.total),h("div",{style:{display:"flex",gap:3}},h("button",{onClick:function(){openPrint(billHtml(o))},style:{background:"#6b728018",color:"#9ca3af",border:"1px solid #6b728030",padding:"4px 8px",borderRadius:4,fontSize:8,cursor:"pointer"}},"Print"),!o.collectionSource&&o.paymentMethod==="PAY_LATER"?h("button",{onClick:function(){onCollect(o.id,"RESTAURANT",staff?staff.display_name:"Cashier")},style:{background:"#22c55e",color:"#000",border:"none",padding:"4px 8px",borderRadius:4,fontWeight:700,fontSize:8,cursor:"pointer"}},"Collected"):null)),
+          o.collectedBy?h("div",{style:{fontSize:8,color:"#4ade80",marginTop:2}},"By: "+o.collectedBy):null
+        )
+      )})
+    ):null
   );
 }
 
@@ -496,7 +629,21 @@ function App(){
   var placeOrder=useCallback(async function(o){
     setOrders(function(p){return p.concat([o])});playBeep();
     try{
-      await sb.from("orders").insert({id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,payment_method:o.paymentMethod,pay_mode:o.payMode,order_type:o.orderType||"ROOM",order_status:"NEW",collection_source:o.payMode==="online"?"RESTAURANT":o.payMode==="counter"?"RESTAURANT":null,collected_by:o.payMode==="online"?"Online":o.payMode==="counter"?"Counter":null});
+      var sessionId=null;
+      // For dine-in: create or find open table session
+      if(o.orderType==="DINE_IN"&&isTable(o.room)){
+        var tableNum=String(o.room).slice(1);
+        var sr=await sb.from("table_sessions").select("*").eq("table_number",tableNum).eq("status","OPEN").order("created_at",{ascending:false}).limit(1);
+        if(sr.data&&sr.data.length>0){
+          sessionId=sr.data[0].id;
+          var newTotal=Number(sr.data[0].total_amount)+o.total;
+          await sb.from("table_sessions").update({total_amount:newTotal,guest_name:o.guestName,guest_phone:o.guestPhone}).eq("id",sessionId);
+        }else{
+          sessionId=uid();
+          await sb.from("table_sessions").insert({id:sessionId,table_number:tableNum,guest_name:o.guestName,guest_phone:o.guestPhone,status:"OPEN",total_amount:o.total,final_amount:o.total});
+        }
+      }
+      await sb.from("orders").insert({id:o.id,room_number:o.room,guest_name:o.guestName,guest_phone:o.guestPhone,instructions:o.instructions||null,subtotal:o.subtotal,coupon_code:o.couponCode,coupon_discount:o.couponDiscount,pay_now_discount:o.payNowDiscount,total:o.total,payment_method:o.paymentMethod,pay_mode:o.payMode,order_type:o.orderType||"ROOM",order_status:"NEW",session_id:sessionId,collection_source:o.payMode==="online"?"RESTAURANT":o.payMode==="counter"?"RESTAURANT":null,collected_by:o.payMode==="online"?"Online":o.payMode==="counter"?"Counter":null});
       await sb.from("order_items").insert(o.items.map(function(i){return{order_id:o.id,item_name:i.name,quantity:i.qty,unit_price:i.price,line_total:i.price*i.qty}}));
     }catch(e){console.error("Save:",e)}
   },[]);
