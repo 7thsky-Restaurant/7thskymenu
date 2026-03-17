@@ -141,7 +141,7 @@ function Login(props){
 function GuestMenu(props){
   var onOrder=props.onOrder,room=props.room,gName=props.gName,gPhone=props.gPhone,avail=props.avail||{},MD=props.menu||MENU,coupons=props.coupons||[];
   var isDine=isTable(room);
-  var ct=useState({}),cart=ct[0],setCart=ct[1];var ca=useState(0),cat=ca[0],setCat=ca[1];var q=useState(""),query=q[0],setQuery=q[1];var sc=useState(false),showCart=sc[0],setSC=sc[1];var cp=useState(""),coupon=cp[0],setCoupon=cp[1];var ap=useState(null),applied=ap[0],setApplied=ap[1];var ce=useState(""),cErr=ce[0],setCErr=ce[1];var ins=useState(""),instr=ins[0],setInstr=ins[1];var th=useState(null),thanks=th[0],setThanks=th[1];var listRef=useRef(null);
+  var ct=useState({}),cart=ct[0],setCart=ct[1];var ca=useState(0),cat=ca[0],setCat=ca[1];var q=useState(""),query=q[0],setQuery=q[1];var sc=useState(false),showCart=sc[0],setSC=sc[1];var cp=useState(""),coupon=cp[0],setCoupon=cp[1];var ap=useState(null),applied=ap[0],setApplied=ap[1];var ce=useState(""),cErr=ce[0],setCErr=ce[1];var ins=useState(""),instr=ins[0],setInstr=ins[1];var th=useState(null),thanks=th[0],setThanks=th[1];var listRef=useRef(null);var catRef=useRef(null);
 
   function add(c,i){var k=c+"-"+i;var MD2=props.menu||MENU;if(MD2[c]&&MD2[c].items[i]&&avail[MD2[c].items[i].n])return;setCart(function(p){var n={};for(var x in p)n[x]=p[x];n[k]=(n[k]||0)+1;return n})}
   function rem(c,i){var k=c+"-"+i;setCart(function(p){var n={};for(var x in p)n[x]=p[x];if(n[k]>1)n[k]--;else delete n[k];return n})}
@@ -155,7 +155,6 @@ function GuestMenu(props){
 
   function order(payMode){
     var pD=(!isDine&&payMode==="online")?Math.round((sub-disc)*0.05):0;
-    // Dine-in: ALWAYS PAY_LATER (cashier collects at end). Room online: PAID. Room bill: PAY_LATER.
     var pm=isDine?"PAY_LATER":(payMode==="online"?"PAID":"PAY_LATER");
     var o={id:uid(),room:room,guestName:gName,guestPhone:gPhone,items:items.map(function(i){return{name:i.n,qty:i.qty,price:i.p}}),instructions:instr.trim(),subtotal:sub,couponDiscount:disc,couponCode:applied?coupon:null,payNowDiscount:pD,total:sub-disc-pD,paymentMethod:pm,payMode:payMode,orderType:isDine?"DINE_IN":"ROOM",status:"NEW",time:new Date()};
     onOrder(o);setThanks(o);setCart({});setCoupon("");setApplied(null);setInstr("");setSC(false);
@@ -163,6 +162,7 @@ function GuestMenu(props){
 
   var filtered=useMemo(function(){if(!query.trim())return null;var s=query.toLowerCase(),r=[];MD.forEach(function(c,ci){c.items.forEach(function(it,ii){if(it.n.toLowerCase().indexOf(s)>=0)r.push({n:it.n,d:it.d,p:it.p,nw:it.nw,ci:ci,ii:ii})})});return r},[query,MD]);
 
+  // Thank you
   if(thanks)return h("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 30%,#1a1510,#08090d 65%)",display:"flex",alignItems:"center",justifyContent:"center",padding:20}},
     h("div",{style:{textAlign:"center",maxWidth:400,animation:"fadeUp 0.6s"}},
       h("h1",{style:{fontFamily:"Georgia,serif",fontSize:26,color:"#c8a44e",marginBottom:4}},"Order Confirmed!"),
@@ -175,64 +175,117 @@ function GuestMenu(props){
     )
   );
 
+  // Item Card - bigger for mobile
   function ItemCard(p){var it=p.it,ci=p.ci,ii=p.ii;var k=ci+"-"+ii,qty=cart[k]||0,off=!!avail[it.n];
-    if(off)return h("div",{style:{background:"#0d0c0a",borderRadius:10,padding:"10px 12px",border:"1px solid #1a1f2e",opacity:0.45}},
-      h("div",{style:{fontSize:13,fontWeight:600,color:"#5e5447",textDecoration:"line-through"}},it.n),
-      h("div",{style:{fontSize:10,color:"#3a3530",marginBottom:6}},it.d),
-      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:14,fontWeight:700,color:"#5e5447"}},"Rs."+it.p),h("span",{style:{background:"#ef444420",color:"#ef4444",fontSize:9,fontWeight:700,padding:"3px 10px",borderRadius:20}},"Not Available"))
+    if(off)return h("div",{style:{background:"#0d0c0a",borderRadius:12,padding:"12px 14px",border:"1px solid #1a1f2e",opacity:0.45}},
+      h("div",{style:{fontSize:15,fontWeight:600,color:"#5e5447",textDecoration:"line-through"}},it.n),
+      h("div",{style:{fontSize:11,color:"#3a3530",marginBottom:6}},it.d),
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:16,fontWeight:700,color:"#5e5447"}},"Rs."+it.p),h("span",{style:{background:"#ef444420",color:"#ef4444",fontSize:10,fontWeight:700,padding:"4px 12px",borderRadius:20}},"Not Available"))
     );
-    return h("div",{style:{background:off?"#0d0c0a":"#12131a",borderRadius:10,padding:"10px 12px",border:"1px solid "+(off?"#f59e0b15":qty?"#c8a44e25":"#1f2028"),opacity:off?0.5:1}},
-      it.nw&&!off?h("div",{style:{float:"right",background:"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 5px",borderRadius:20}},"NEW"):null,
-      h("div",{style:{fontSize:13,fontWeight:600,color:off?"#5e5447":"#f2ede4",marginBottom:2}},it.n),
-      h("div",{style:{fontSize:10,color:"#5e5447",marginBottom:6}},it.d),
-      off?h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{fontSize:15,fontWeight:700,color:"#5e5447"}},"Rs."+it.p),h("span",{style:{fontSize:9,color:"#f59e0b"}},av2.note||"Unavailable")):
-      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},h("span",{style:{fontSize:15,fontWeight:700,color:"#c8a44e"}},"Rs."+it.p),
-        qty===0?h("button",{onClick:function(){add(ci,ii)},style:{background:"transparent",border:"1.5px solid #c8a44e",color:"#c8a44e",padding:"3px 14px",borderRadius:6,fontSize:11,fontWeight:700,cursor:"pointer"}},"ADD"):
-        h("div",{style:{display:"flex",alignItems:"center",gap:4,background:"#c8a44e10",borderRadius:6,padding:"2px 4px",border:"1px solid #c8a44e25"}},h("button",{onClick:function(){rem(ci,ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:18,cursor:"pointer",width:24}},"-"),h("span",{style:{color:"#c8a44e",fontWeight:800,fontSize:13}},qty),h("button",{onClick:function(){add(ci,ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:18,cursor:"pointer",width:24}},"+"))
+    return h("div",{style:{background:"#12131a",borderRadius:12,padding:"12px 14px",border:"1px solid "+(qty?"#c8a44e30":"#1f2028")}},
+      it.nw?h("div",{style:{float:"right",background:"#f59e0b",color:"#000",fontSize:8,fontWeight:800,padding:"2px 6px",borderRadius:20}},"NEW"):null,
+      h("div",{style:{fontSize:15,fontWeight:600,color:"#f2ede4",marginBottom:3}},it.n),
+      h("div",{style:{fontSize:11,color:"#6b7280",marginBottom:8,lineHeight:1.3}},it.d),
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center"}},
+        h("span",{style:{fontSize:18,fontWeight:700,color:"#c8a44e"}},"Rs."+it.p),
+        qty===0?h("button",{onClick:function(){add(ci,ii)},style:{background:"transparent",border:"2px solid #c8a44e",color:"#c8a44e",padding:"6px 20px",borderRadius:8,fontSize:13,fontWeight:700,cursor:"pointer"}},"ADD"):
+        h("div",{style:{display:"flex",alignItems:"center",gap:6,background:"#c8a44e10",borderRadius:8,padding:"3px 6px",border:"1px solid #c8a44e25"}},
+          h("button",{onClick:function(){rem(ci,ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:22,cursor:"pointer",width:30,height:30,fontWeight:700}},"-"),
+          h("span",{style:{color:"#c8a44e",fontWeight:800,fontSize:16,minWidth:18,textAlign:"center"}},qty),
+          h("button",{onClick:function(){add(ci,ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:22,cursor:"pointer",width:30,height:30,fontWeight:700}},"+")
+        )
       )
     );
   }
 
-  return h("div",{style:{height:"100vh",background:"#08090d",display:"flex",flexDirection:"column",overflow:"hidden"}},
-    h("div",{style:{background:"#12131a",padding:"8px 10px",borderBottom:"1px solid #1f2028",flexShrink:0}},
-      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:6}},h("div",null,h("div",{style:{fontFamily:"Georgia,serif",fontSize:16,color:"#c8a44e"}},"7th Sky"),h("div",{style:{fontSize:8,color:"#5e5447"}},seat(room)+" | Pure Veg")),h("div",{style:{textAlign:"right"}},h("div",{style:{fontSize:10,fontWeight:600}},gName),h("div",{style:{fontSize:8,color:"#5e5447"}},gPhone))),
-      h("input",{value:query,onChange:function(e){setQuery(e.target.value)},placeholder:"Search any dish...",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:8,padding:"8px 10px",fontSize:12,color:"#f2ede4",outline:"none"}})
-    ),
-    h("div",{style:{flex:1,display:"flex",overflow:"hidden"}},
-      h("div",{style:{width:110,background:"#0e0f15",borderRight:"1px solid #1f2028",overflowY:"auto",flexShrink:0}},h("div",{style:{padding:"4px 3px"}},MD.map(function(c,i){var active=i===cat&&!query;var cnt=c.items.reduce(function(s,_,ii){return s+(cart[i+"-"+ii]||0)},0);return h("button",{key:i,onClick:function(){setCat(i);setQuery("");if(listRef.current)listRef.current.scrollTop=0},style:{width:"100%",display:"flex",alignItems:"center",gap:3,background:active?"#c8a44e12":"transparent",border:active?"1px solid #c8a44e25":"1px solid transparent",borderRadius:5,padding:"5px 4px",cursor:"pointer",marginBottom:1,position:"relative",textAlign:"left"}},h("span",{style:{fontSize:11}},c.i),h("span",{style:{fontSize:7,fontWeight:active?700:500,color:active?"#c8a44e":"#9b8e7e",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}},c.n),cnt>0?h("div",{style:{position:"absolute",top:1,right:2,background:"#c8a44e",color:"#000",fontSize:6,fontWeight:800,width:11,height:11,borderRadius:50,display:"flex",alignItems:"center",justifyContent:"center"}},cnt):null)}))),
-      h("div",{ref:listRef,style:{flex:1,overflowY:"auto",padding:"10px 8px",paddingBottom:tot>0?72:12}},
-        filtered?h("div",null,h("div",{style:{fontSize:10,color:"#5e5447",marginBottom:6}},filtered.length+" results"),h("div",{style:{display:"grid",gap:6}},filtered.map(function(it){return h(ItemCard,{key:it.ci+"-"+it.ii,it:it,ci:it.ci,ii:it.ii})})),filtered.length===0?h("div",{style:{textAlign:"center",padding:30,color:"#5e5447"}},"No dishes found"):null):
-        h("div",null,h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:8}},h("span",{style:{fontSize:18}},MD[cat].i),h("div",null,h("div",{style:{fontSize:14,fontWeight:700}},MD[cat].n),h("div",{style:{fontSize:9,color:"#5e5447"}},MD[cat].items.length+" items"))),h("div",{style:{display:"grid",gap:6}},MD[cat].items.map(function(it,ii){return h(ItemCard,{key:cat+"-"+ii,it:it,ci:cat,ii:ii})})))
+  // Scroll selected category into view
+  function selectCat(i){setCat(i);setQuery("");if(listRef.current)listRef.current.scrollTop=0;
+    setTimeout(function(){if(catRef.current){var btns=catRef.current.children;if(btns[i])btns[i].scrollIntoView({behavior:"smooth",inline:"center",block:"nearest"})}},50);
+  }
+
+  return h("div",{style:{minHeight:"100vh",background:"#08090d",display:"flex",flexDirection:"column"}},
+    // Header
+    h("div",{style:{background:"#12131a",padding:"10px 12px",borderBottom:"1px solid #1f2028",flexShrink:0}},
+      h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},
+        h("div",null,h("div",{style:{fontFamily:"Georgia,serif",fontSize:18,color:"#c8a44e"}},"7th Sky"),h("div",{style:{fontSize:9,color:"#5e5447"}},seat(room)+" | Pure Veg")),
+        h("div",{style:{textAlign:"right"}},h("div",{style:{fontSize:11,fontWeight:600}},gName),h("div",{style:{fontSize:9,color:"#5e5447"}},gPhone))
+      ),
+      // Search
+      h("input",{value:query,onChange:function(e){setQuery(e.target.value)},placeholder:"Search any dish...",style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:10,padding:"10px 12px",fontSize:14,color:"#f2ede4",outline:"none",marginBottom:8}}),
+      // Categories - horizontal scroll, BIG chips
+      h("div",{ref:catRef,style:{display:"flex",gap:6,overflowX:"auto",paddingBottom:4,WebkitOverflowScrolling:"touch",scrollbarWidth:"none",msOverflowStyle:"none"}},
+        MD.map(function(c,i){
+          var active=i===cat&&!query;
+          var cnt=c.items.reduce(function(s,_,ii){return s+(cart[i+"-"+ii]||0)},0);
+          return h("button",{key:i,onClick:function(){selectCat(i)},style:{display:"flex",alignItems:"center",gap:5,background:active?"#c8a44e":"#1a1f2e",border:"none",borderRadius:20,padding:"8px 14px",cursor:"pointer",whiteSpace:"nowrap",flexShrink:0,position:"relative"}},
+            h("span",{style:{fontSize:16}},c.i),
+            h("span",{style:{fontSize:12,fontWeight:active?800:600,color:active?"#08090d":"#9b8e7e"}},c.n),
+            cnt>0?h("span",{style:{position:"absolute",top:-4,right:-2,background:"#ef4444",color:"#fff",fontSize:8,fontWeight:800,width:16,height:16,borderRadius:50,display:"flex",alignItems:"center",justifyContent:"center"}},cnt):null
+          );
+        })
       )
     ),
-    tot>0&&!showCart?h("div",{onClick:function(){setSC(true)},style:{position:"fixed",bottom:10,left:10,right:10,background:"linear-gradient(135deg,#c8a44e,#a6832a)",borderRadius:12,padding:"10px 14px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",zIndex:200,boxShadow:"0 6px 24px rgba(200,164,78,0.3)"}},h("span",{style:{color:"#08090d",fontWeight:700,fontSize:13}},tot+" item"+(tot>1?"s":"")),h("span",{style:{color:"#08090d",fontWeight:800,fontSize:14}},"Rs."+sub+" >")):null,
-    showCart?h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.8)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}},
-      h("div",{style:{background:"#08090d",borderRadius:"20px 20px 0 0",maxHeight:"92vh",overflowY:"auto",padding:"18px 14px 20px"}},
-        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:12}},h("h2",{style:{fontFamily:"Georgia,serif",fontSize:22,color:"#c8a44e",fontWeight:400}},"Your Order"),h("button",{onClick:function(){setSC(false)},style:{background:"#12131a",border:"1px solid #1f2028",color:"#9b8e7e",width:30,height:30,borderRadius:50,fontSize:13,cursor:"pointer"}},"X")),
-        items.map(function(it){return h("div",{key:it.k,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"7px 0",borderBottom:"1px solid #1f2028"}},h("div",{style:{flex:1}},h("div",{style:{fontSize:12,fontWeight:600}},it.n),h("div",{style:{fontSize:10,color:"#5e5447"}},"Rs."+it.p+" x "+it.qty)),h("div",{style:{display:"flex",alignItems:"center",gap:5}},h("span",{style:{fontWeight:700,color:"#c8a44e",fontSize:12}},"Rs."+it.p*it.qty),h("div",{style:{display:"flex",alignItems:"center",gap:2,background:"#c8a44e0d",borderRadius:5,padding:"1px 3px",border:"1px solid #c8a44e20"}},h("button",{onClick:function(){rem(it.ci,it.ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:16,cursor:"pointer",width:22}},"-"),h("span",{style:{color:"#c8a44e",fontWeight:800,fontSize:11}},it.qty),h("button",{onClick:function(){add(it.ci,it.ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:16,cursor:"pointer",width:22}},"+"))
-        ))}),
-        h("textarea",{value:instr,onChange:function(e){setInstr(e.target.value)},placeholder:"Special instructions: less spicy, no onion...",rows:2,style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px",fontSize:11,color:"#f2ede4",outline:"none",resize:"vertical",margin:"10px 0"}}),
-        h("div",{style:{display:"flex",gap:4,marginBottom:10}},h("input",{value:coupon,onChange:function(e){setCoupon(e.target.value);setCErr("")},placeholder:"Coupon code",style:{flex:1,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:6,padding:"8px",fontSize:12,color:"#f2ede4",outline:"none",textTransform:"uppercase"}}),h("button",{onClick:function(){tryCode()},style:{background:"#c8a44e",color:"#08090d",border:"none",padding:"8px 14px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Apply")),
-        cErr?h("div",{style:{color:"#f87171",fontSize:10,marginBottom:4}},cErr):null,
-        applied?h("div",{style:{color:"#4ade80",fontSize:11,fontWeight:600,marginBottom:6}},"Applied: "+applied.l+" (save Rs."+disc+")"):null,
-        coupons.filter(function(c){return!c.assigned_to_guest&&c.is_active}).map(function(c){var on=applied&&coupon===c.code;var minR=Number(c.min_order||0);var canUse=minR<=0||sub>=minR;return h("div",{key:c.code,onClick:function(){if(!on&&canUse)tryCode(c.code)},style:{display:"flex",justifyContent:"space-between",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":"#c8a44e30"),borderRadius:6,padding:"5px 8px",cursor:canUse?"pointer":"default",marginBottom:3,opacity:canUse?1:0.5}},h("div",null,h("span",{style:{fontFamily:"monospace",fontSize:11,fontWeight:700,color:on?"#4ade80":"#c8a44e"}}," "+c.code+" "),h("span",{style:{fontSize:9,color:"#5e5447"}},(c.type==="percent"?c.value+"%":"Rs."+c.value)+" off"+(minR>0?" | Min Rs."+minR:""))),h("span",{style:{fontSize:8,color:on?"#4ade80":"#c8a44e",fontWeight:700}},on?"APPLIED":"TAP"))}),
-        h("div",{style:{borderTop:"1px solid #1f2028",marginTop:8,paddingTop:8}},
-          h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:3}},h("span",{style:{color:"#9b8e7e",fontSize:11}},"Subtotal ("+tot+")"),h("span",{style:{fontSize:12}},"Rs."+sub)),
-          disc>0?h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:3}},h("span",{style:{color:"#4ade80",fontSize:11}},"Coupon"),h("span",{style:{color:"#4ade80",fontSize:12}},"-Rs."+disc)):null,
-          !isDine&&applied?null:null,
-          h("div",{style:{height:1,background:"#1f2028",margin:"4px 0"}}),
-          h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{fontWeight:700,fontSize:14}},"Total"),h("span",{style:{fontWeight:800,color:"#c8a44e",fontSize:17}},"Rs."+(sub-disc)))
+    // Items list
+    h("div",{ref:listRef,style:{flex:1,overflowY:"auto",padding:"12px 10px",paddingBottom:tot>0?80:20}},
+      filtered?h("div",null,
+        h("div",{style:{fontSize:12,color:"#5e5447",marginBottom:8}},filtered.length+" results for \""+query+"\""),
+        h("div",{style:{display:"grid",gap:8}},filtered.map(function(it){return h(ItemCard,{key:it.ci+"-"+it.ii,it:it,ci:it.ci,ii:it.ii})})),
+        filtered.length===0?h("div",{style:{textAlign:"center",padding:30,color:"#5e5447",fontSize:14}},"No dishes found"):null
+      ):h("div",null,
+        h("div",{style:{display:"flex",alignItems:"center",gap:8,marginBottom:10}},
+          h("span",{style:{fontSize:24}},MD[cat].i),
+          h("div",null,h("div",{style:{fontSize:18,fontWeight:700}},MD[cat].n),h("div",{style:{fontSize:11,color:"#5e5447"}},MD[cat].items.length+" items"))
         ),
-        h("div",{style:{display:"grid",gridTemplateColumns:isDine?"1fr 1fr":"1fr 1fr",gap:6,marginTop:10}},
-          isDine?h("button",{onClick:function(){order("online")},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"12px 6px",borderRadius:10,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Online",h("br"),h("span",{style:{fontSize:9,opacity:0.85}},"UPI / Card")):
-          h("button",{onClick:function(){order("online")},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"12px 6px",borderRadius:10,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Now",h("br"),h("span",{style:{fontSize:9,opacity:0.85}},"5% off Rs."+(sub-disc-Math.round((sub-disc)*0.05)))),
-          isDine?h("button",{onClick:function(){order("counter")},style:{background:"linear-gradient(135deg,#60a5fa,#3b82f6)",color:"#fff",border:"none",padding:"12px 6px",borderRadius:10,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay at Counter",h("br"),h("span",{style:{fontSize:9,opacity:0.85}},"Cash / UPI")):
-          h("button",{onClick:function(){order("room")},style:{background:"linear-gradient(135deg,#c9956b,#a87650)",color:"#fff",border:"none",padding:"12px 6px",borderRadius:10,fontSize:12,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Room Bill",h("br"),h("span",{style:{fontSize:9,opacity:0.85}},"Pay at checkout"))
+        h("div",{style:{display:"grid",gap:8}},MD[cat].items.map(function(it,ii){return h(ItemCard,{key:cat+"-"+ii,it:it,ci:cat,ii:ii})}))
+      )
+    ),
+    // Floating cart button
+    tot>0&&!showCart?h("div",{onClick:function(){setSC(true)},style:{position:"fixed",bottom:12,left:12,right:12,background:"linear-gradient(135deg,#c8a44e,#a6832a)",borderRadius:14,padding:"12px 16px",display:"flex",justifyContent:"space-between",alignItems:"center",cursor:"pointer",zIndex:200,boxShadow:"0 6px 24px rgba(200,164,78,0.3)"}},
+      h("span",{style:{color:"#08090d",fontWeight:700,fontSize:15}},tot+" item"+(tot>1?"s":"")),
+      h("span",{style:{color:"#08090d",fontWeight:800,fontSize:16}},"Rs."+sub+" >")
+    ):null,
+    // Checkout sheet
+    showCart?h("div",{style:{position:"fixed",inset:0,background:"rgba(0,0,0,0.85)",zIndex:300,display:"flex",flexDirection:"column",justifyContent:"flex-end"}},
+      h("div",{style:{background:"#08090d",borderRadius:"20px 20px 0 0",maxHeight:"92vh",overflowY:"auto",padding:"20px 14px 24px"}},
+        h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:14}},h("h2",{style:{fontFamily:"Georgia,serif",fontSize:22,color:"#c8a44e",fontWeight:400}},"Your Order"),h("button",{onClick:function(){setSC(false)},style:{background:"#12131a",border:"1px solid #1f2028",color:"#9b8e7e",width:32,height:32,borderRadius:50,fontSize:14,cursor:"pointer"}},"X")),
+        // Cart items
+        items.map(function(it){return h("div",{key:it.k,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"8px 0",borderBottom:"1px solid #1f2028"}},
+          h("div",{style:{flex:1}},h("div",{style:{fontSize:14,fontWeight:600}},it.n),h("div",{style:{fontSize:11,color:"#5e5447"}},"Rs."+it.p+" x "+it.qty)),
+          h("div",{style:{display:"flex",alignItems:"center",gap:6}},
+            h("span",{style:{fontWeight:700,color:"#c8a44e",fontSize:14}},"Rs."+it.p*it.qty),
+            h("div",{style:{display:"flex",alignItems:"center",gap:3,background:"#c8a44e0d",borderRadius:6,padding:"2px 4px",border:"1px solid #c8a44e20"}},
+              h("button",{onClick:function(){rem(it.ci,it.ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:18,cursor:"pointer",width:24}},"-"),
+              h("span",{style:{color:"#c8a44e",fontWeight:800,fontSize:13}},it.qty),
+              h("button",{onClick:function(){add(it.ci,it.ii)},style:{background:"none",border:"none",color:"#c8a44e",fontSize:18,cursor:"pointer",width:24}},"+")
+            )
+          )
+        )}),
+        // Instructions
+        h("textarea",{value:instr,onChange:function(e){setInstr(e.target.value)},placeholder:"Special instructions: less spicy, no onion...",rows:2,style:{width:"100%",background:"#0e0f15",border:"1px solid #1f2028",borderRadius:8,padding:"10px",fontSize:13,color:"#f2ede4",outline:"none",resize:"vertical",margin:"12px 0"}}),
+        // Coupon
+        h("div",{style:{display:"flex",gap:5,marginBottom:8}},h("input",{value:coupon,onChange:function(e){setCoupon(e.target.value);setCErr("")},placeholder:"Coupon code",style:{flex:1,background:"#0e0f15",border:"1px solid #1f2028",borderRadius:8,padding:"10px",fontSize:13,color:"#f2ede4",outline:"none",textTransform:"uppercase"}}),h("button",{onClick:function(){tryCode()},style:{background:"#c8a44e",color:"#08090d",border:"none",padding:"10px 16px",borderRadius:8,fontWeight:700,fontSize:12,cursor:"pointer"}},"Apply")),
+        cErr?h("div",{style:{color:"#f87171",fontSize:11,marginBottom:4}},cErr):null,
+        applied?h("div",{style:{color:"#4ade80",fontSize:12,fontWeight:600,marginBottom:8}},"Applied: "+applied.l+" (save Rs."+disc+")"):null,
+        coupons.filter(function(c){return!c.assigned_to_guest&&c.is_active}).map(function(c){var on=applied&&coupon===c.code;var minR=Number(c.min_order||0);var canUse=minR<=0||sub>=minR;return h("div",{key:c.code,onClick:function(){if(!on&&canUse)tryCode(c.code)},style:{display:"flex",justifyContent:"space-between",background:on?"#4ade800a":"#0e0f15",border:"1px dashed "+(on?"#4ade8040":"#c8a44e30"),borderRadius:8,padding:"6px 10px",cursor:canUse?"pointer":"default",marginBottom:4,opacity:canUse?1:0.5}},h("div",null,h("span",{style:{fontFamily:"monospace",fontSize:12,fontWeight:700,color:on?"#4ade80":"#c8a44e"}}," "+c.code+" "),h("span",{style:{fontSize:10,color:"#5e5447"}},(c.type==="percent"?c.value+"%":"Rs."+c.value)+" off"+(minR>0?" | Min Rs."+minR:""))),h("span",{style:{fontSize:9,color:on?"#4ade80":"#c8a44e",fontWeight:700}},on?"APPLIED":"TAP"))}),
+        // Bill
+        h("div",{style:{borderTop:"1px solid #1f2028",marginTop:10,paddingTop:10}},
+          h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},h("span",{style:{color:"#9b8e7e",fontSize:13}},"Subtotal ("+tot+")"),h("span",{style:{fontSize:14}},"Rs."+sub)),
+          disc>0?h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},h("span",{style:{color:"#4ade80",fontSize:13}},"Coupon"),h("span",{style:{color:"#4ade80",fontSize:14}},"-Rs."+disc)):null,
+          h("div",{style:{height:1,background:"#1f2028",margin:"6px 0"}}),
+          h("div",{style:{display:"flex",justifyContent:"space-between"}},h("span",{style:{fontWeight:700,fontSize:16}},"Total"),h("span",{style:{fontWeight:800,color:"#c8a44e",fontSize:20}},"Rs."+(sub-disc)))
+        ),
+        // Payment
+        h("div",{style:{display:"grid",gridTemplateColumns:isDine?"1fr 1fr":"1fr 1fr",gap:8,marginTop:12}},
+          isDine?h("button",{onClick:function(){order("online")},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Online",h("br"),h("span",{style:{fontSize:10,opacity:0.85}},"UPI / Card")):
+          h("button",{onClick:function(){order("online")},style:{background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay Now",h("br"),h("span",{style:{fontSize:10,opacity:0.85}},"5% off Rs."+(sub-disc-Math.round((sub-disc)*0.05)))),
+          isDine?h("button",{onClick:function(){order("counter")},style:{background:"linear-gradient(135deg,#60a5fa,#3b82f6)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Pay at Counter",h("br"),h("span",{style:{fontSize:10,opacity:0.85}},"Cash / UPI")):
+          h("button",{onClick:function(){order("room")},style:{background:"linear-gradient(135deg,#c9956b,#a87650)",color:"#fff",border:"none",padding:"14px 6px",borderRadius:12,fontSize:14,fontWeight:800,cursor:"pointer",textAlign:"center"}},"Room Bill",h("br"),h("span",{style:{fontSize:10,opacity:0.85}},"Pay at checkout"))
         )
       )
     ):null
   );
 }
+
 // === KITCHEN ===
 function Kitchen(props){
   var orders=props.orders,onUpdate=props.onUpdate;
