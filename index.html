@@ -347,8 +347,9 @@ function CashPanel(props){
       [{l:"Total",v:totalAmt,c:"#60a5fa"},{l:"Cash",v:cashAmt,c:"#22c55e"},{l:"Online",v:onlineAmt,c:"#4ade80"},{l:"Reception",v:recepAmt,c:"#8b5cf6"},{l:"Pending",v:pendAmt,c:"#f59e0b"}].map(function(s,i){return h("div",{key:i,style:{background:"#111318",borderRadius:8,padding:8,borderLeft:"3px solid "+s.c}},h("div",{style:{color:"#6b7280",fontSize:7,letterSpacing:1}},s.l),h("div",{style:{color:s.c,fontSize:16,fontWeight:800}},"Rs."+s.v))})
     ),
     // View toggle: Orders vs Tables
-    h("div",{style:{display:"flex",gap:3,marginBottom:10}},
-      [{k:"orders",l:"All Orders"},{k:"tables",l:"Open Tables ("+sessions.length+")"}].map(function(v){return h("button",{key:v.k,onClick:function(){setView(v.k)},style:{background:view===v.k?"#60a5fa":"#111318",color:view===v.k?"#000":"#9ca3af",border:"none",padding:"6px 12px",borderRadius:6,fontWeight:700,fontSize:10,cursor:"pointer"}},v.l)})
+    h("div",{style:{display:"flex",gap:6,marginBottom:12}},
+      h("button",{onClick:function(){setView("orders")},style:{flex:1,background:view==="orders"?"#60a5fa":"#111318",color:view==="orders"?"#000":"#9ca3af",border:view==="orders"?"none":"2px solid #60a5fa30",padding:"10px",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer"}},"All Orders"),
+      h("button",{onClick:function(){setView("tables")},style:{flex:1,background:view==="tables"?"#f59e0b":"#111318",color:view==="tables"?"#000":"#f59e0b",border:view==="tables"?"none":"2px solid #f59e0b30",padding:"10px",borderRadius:10,fontWeight:800,fontSize:13,cursor:"pointer",position:"relative"}},"Open Tables",sessions.length>0?h("span",{style:{position:"absolute",top:-6,right:-4,background:"#ef4444",color:"#fff",fontSize:10,fontWeight:800,width:20,height:20,borderRadius:50,display:"flex",alignItems:"center",justifyContent:"center"}},sessions.length):null)
     ),
     closeMsg?h("div",{style:{background:"#4ade8012",border:"1px solid #4ade8025",borderRadius:6,padding:"6px 10px",marginBottom:8,fontSize:10,color:"#4ade80",display:"flex",justifyContent:"space-between"}},h("span",null,closeMsg),h("button",{onClick:function(){setCloseMsg("")},style:{background:"none",border:"none",color:"#6b7280",cursor:"pointer"}},"x")):null,
 
