@@ -483,7 +483,7 @@ function Reception(props){
 }
 // === ADMIN ===
 function Admin(props){
-  var orders=props.orders,staff=props.staff,avail=props.avail,setAvail=props.setAvail,collectPayment=props.collectPayment,setOrders=props.setOrders;
+  var orders=props.orders,staff=props.staff,avail=props.avail,setAvail=props.setAvail,collectPayment=props.collectPayment,setOrders=props.setOrders,storeOpen=props.storeOpen,setStoreOpen=props.setStoreOpen;
   var tb=useState("dash"),tab=tb[0],setTab=tb[1];
   var MD=props.menu||MENU;
   var totalSale=orders.reduce(function(s,o){return s+o.total},0);
@@ -496,7 +496,18 @@ function Admin(props){
   var tabs=[{id:"dash",l:"Dashboard"},{id:"orders",l:"Orders"},{id:"settle",l:"Settlement"},{id:"reports",l:"Reports"},{id:"menu",l:"Menu"},{id:"coupons",l:"Coupons"}];
 
   return h("div",{style:{minHeight:"100vh",background:"#08090d",padding:14}},
-    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:8}},h("h1",{style:{fontFamily:"Georgia,serif",fontSize:22,color:"#c8a44e",fontWeight:400}},"Admin Panel"),staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null),
+    h("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}},h("h1",{style:{fontFamily:"Georgia,serif",fontSize:22,color:"#c8a44e",fontWeight:400}},"Admin Panel"),
+      h("div",{style:{display:"flex",alignItems:"center",gap:8}},
+        h("button",{onClick:function(){
+          var newStatus=storeOpen?false:true;
+          if(!newStatus&&!confirm("Close store? Customers will see 'Temporarily Closed' and your phone number."))return;
+          setStoreOpen(newStatus);
+          if(newStatus){sb.from("table_sessions").delete().eq("table_number","__STORE__")}
+          else{sb.from("table_sessions").delete().eq("table_number","__STORE__").then(function(){sb.from("table_sessions").insert({table_number:"__STORE__",status:"CLOSED",guest_name:"SYSTEM"})})}
+        },style:{background:storeOpen?"#22c55e":"#ef4444",color:"#fff",border:"none",padding:"6px 14px",borderRadius:20,fontWeight:800,fontSize:11,cursor:"pointer"}},storeOpen?"STORE OPEN":"STORE CLOSED"),
+        staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null
+      )
+    ),
     h("div",{style:{display:"flex",gap:3,marginBottom:14,overflowX:"auto"}},tabs.map(function(t){return h("button",{key:t.id,onClick:function(){setTab(t.id)},style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"6px 10px",borderRadius:6,fontWeight:700,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}},t.l)})),
 
     tab==="dash"?h("div",null,
@@ -633,6 +644,7 @@ function App(){
   var mn=useState(null),menu=mn[0],setMenu=mn[1];
   var cp=useState([]),dbCoupons=cp[0],setDbCoupons=cp[1];
   var db=useState(false),dbReady=db[0],setDbReady=db[1];
+  var so=useState(true),storeOpen=so[0],setStoreOpen=so[1];
   var sf=useState(null),staff=sf[0],setStaff=sf[1];
   var wl=useState(PANEL!=="guest"),welcomed=wl[0],setWelcomed=wl[1];
   var rm=useState(""),room=rm[0],setRoom=rm[1];
@@ -663,6 +675,9 @@ function App(){
         }
         var cpR=await sb.from("custom_coupons").select("*").eq("is_active",true);
         if(cpR.data)setDbCoupons(cpR.data.filter(function(c){return c.used_count<c.max_uses}));
+        // Check store open/closed
+        var stR=await sb.from("table_sessions").select("status").eq("table_number","__STORE__").limit(1);
+        if(stR.data&&stR.data.length>0&&stR.data[0].status==="CLOSED")setStoreOpen(false);
         setDbReady(true);
       }catch(e){console.error("Init:",e);setDbReady(true)}
     })();
@@ -727,6 +742,20 @@ function App(){
 
   if(!dbReady)return h("div",{style:{minHeight:"100vh",background:"#08090d",display:"flex",alignItems:"center",justifyContent:"center",flexDirection:"column"}},h("div",{style:{fontSize:30,color:"#c8a44e",marginBottom:10}},"*"),h("div",{style:{color:"#5e5447",fontSize:12}},"Connecting..."));
   if(needsLogin&&!staff)return h(Login,{panelType:PANEL,onLogin:setStaff});
+  if(PANEL==="guest"&&!storeOpen)return h("div",{style:{minHeight:"100vh",background:"radial-gradient(ellipse at 50% 0%,#1a1510,#08090d 65%)",display:"flex",alignItems:"center",justifyContent:"center",padding:"24px 20px"}},
+    h("div",{style:{textAlign:"center",maxWidth:380}},
+      h("h1",{style:{fontSize:34,fontWeight:400,color:"#c8a44e",letterSpacing:3,fontFamily:"Georgia,serif",marginBottom:4}},"7th Sky"),
+      h("div",{style:{fontSize:13,color:"#9b8e7e",letterSpacing:8,textTransform:"uppercase",marginBottom:24}},"Fine Dine"),
+      h("div",{style:{background:"rgba(239,68,68,0.08)",border:"2px solid rgba(239,68,68,0.2)",borderRadius:20,padding:"30px 24px",marginBottom:20}},
+        h("div",{style:{fontSize:40,marginBottom:10}},"!"),
+        h("div",{style:{fontSize:20,fontWeight:700,color:"#ef4444",marginBottom:6}},"Temporarily Closed"),
+        h("div",{style:{fontSize:14,color:"#9b8e7e",lineHeight:1.6,marginBottom:16}},"We are not taking online orders right now. Please call us to place your order directly."),
+        h("a",{href:"tel:7878343305",style:{display:"inline-block",background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",textDecoration:"none",padding:"14px 28px",borderRadius:12,fontSize:18,fontWeight:800,letterSpacing:1}},"Call 78783 43305"),
+        h("div",{style:{fontSize:11,color:"#5e5447",marginTop:12}},"We will be back soon!")
+      ),
+      h("div",{style:{fontSize:11,color:"#5e5447",letterSpacing:2}},"Pure Vegetarian | Sirohi, Rajasthan")
+    )
+  );
   if(PANEL==="guest"&&!welcomed)return h(Welcome,{onGo:function(n,p,sType,sNum){setGName(n);setGPhone(p);setRoom(sType==="table"?"T"+sNum:sNum);setWelcomed(true)}});
 
   return h("div",null,
@@ -734,7 +763,7 @@ function App(){
     PANEL==="kitchen"?h(Kitchen,{orders:orders,onUpdate:updateStatus}):null,
     PANEL==="cash"?h(CashPanel,{orders:orders,onUpdate:updateStatus,onCollect:collectPayment,staff:staff}):null,
     PANEL==="reception"?h(Reception,{orders:orders,onCollect:collectPayment,staff:staff}):null,
-    PANEL==="admin"?h(Admin,{orders:orders,avail:avail,setAvail:setAvail,staff:staff,collectPayment:collectPayment,setOrders:setOrders,menu:menu||MENU}):null
+    PANEL==="admin"?h(Admin,{orders:orders,avail:avail,setAvail:setAvail,staff:staff,collectPayment:collectPayment,setOrders:setOrders,menu:menu||MENU,storeOpen:storeOpen,setStoreOpen:setStoreOpen}):null
   );
 }
 
