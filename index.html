@@ -542,7 +542,7 @@ function Admin(props){
           catOff?null:c.items.map(function(it,ai){var av=avail[it.n],off=av===true||(typeof av==="string"&&!timeOk(av)),timeLabel=typeof av==="string"?av:"";
             return h("div",{key:ai,style:{display:"flex",justifyContent:"space-between",alignItems:"center",padding:"5px 10px",background:off?"#120d08":"#111318",borderRadius:6,marginBottom:2,border:"1px solid "+(off?"#ef444418":"#1a1f2e")}},
               h("span",{style:{flex:1,fontSize:13,fontWeight:600,color:off?"#ef4444":"#e8e2d8",textDecoration:off?"line-through":"none"}},it.n),
-              h("button",{onClick:function(){var np=prompt("New price for "+it.n+":",it.p);if(!np||isNaN(np))return;var newP=parseInt(np);it.p=newP;sb.from("menu_items").update({price:newP}).eq("name",it.n).then(function(r){if(r.error)alert("Error: "+r.error.message)});setAvail(function(p){return Object.assign({},p)})},style:{background:"#c8a44e12",color:"#c8a44e",border:"1px solid #c8a44e25",padding:"3px 8px",borderRadius:5,fontSize:12,fontWeight:700,cursor:"pointer"}},"Rs."+it.p),
+              h("button",{onClick:function(){var np=prompt("New price for "+it.n+":",it.p);if(!np||isNaN(np))return;var newP=parseInt(np);sb.from("menu_items").update({price:newP}).eq("name",it.n).then(function(r){if(r.error){alert("Error: "+r.error.message)}else{it.p=newP;setAvail(function(p){return Object.assign({},p)});alert(it.n+" = Rs."+newP+" saved! Guest will see new price.")}})},style:{background:"#c8a44e12",color:"#c8a44e",border:"1px solid #c8a44e25",padding:"3px 8px",borderRadius:5,fontSize:12,fontWeight:700,cursor:"pointer"}},"Rs."+it.p),
               h("select",{onChange:function(e){var v=e.target.value;
                 if(v==="on"){setAvail(function(p){var n={};for(var x in p)n[x]=p[x];delete n[it.n];return n});sb.from("menu_items").update({is_available:true,availability_note:null}).eq("name",it.n).then(function(r){if(r.error)alert("Error: "+r.error.message)})}
                 else if(v==="off"){setAvail(function(p){var n={};for(var x in p)n[x]=p[x];n[it.n]=true;return n});sb.from("menu_items").update({is_available:false,availability_note:null}).eq("name",it.n).then(function(r){if(r.error)alert("Error: "+r.error.message)})}
@@ -685,6 +685,17 @@ function App(){
             if(!mi.is_available){avMap[mi.name]=mi.availability_note||true}
           });
           setAvail(avMap);
+        }
+        // Load menu from DB
+        var catR=await sb.from("menu_categories").select("*").eq("is_active",true).order("display_order");
+        var itemR=await sb.from("menu_items").select("*").order("category_id").order("display_order");
+        if(catR.data&&itemR.data&&catR.data.length>0){
+          var dbMenu=catR.data.map(function(cat){
+            var catItems=itemR.data.filter(function(i){return i.category_id===cat.id});
+            var emoji=MENU.find(function(m){return m.n===cat.name});
+            return{n:cat.name,i:emoji?emoji.i:(cat.icon||"🍽"),items:catItems.map(function(i){return{n:i.name,d:i.description||"",p:Number(i.price),nw:i.is_new||false}})}
+          }).filter(function(c){return c.items.length>0});
+          if(dbMenu.length>0)setMenu(dbMenu);
         }
         var cpR=await sb.from("custom_coupons").select("*").eq("is_active",true);
         if(cpR.data)setDbCoupons(cpR.data.filter(function(c){return c.used_count<c.max_uses}));
