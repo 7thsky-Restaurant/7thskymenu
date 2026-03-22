@@ -53,6 +53,32 @@ function timeOk(note){if(!note)return false;var hr=new Date().getHours(),m;m=not
 // === EXCEL ===
 function toXls(data,name){var ws=XLSX.utils.json_to_sheet(data);var wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Report");ws["!cols"]=Object.keys(data[0]||{}).map(function(k){var mx=k.length;data.forEach(function(r){var v=String(r[k]||"");if(v.length>mx)mx=v.length});return{wch:Math.min(mx+2,40)}});XLSX.writeFile(wb,name)}
 
+// === DATE FILTER HELPER ===
+function todayStr(){return new Date().toISOString().slice(0,10)}
+async function fetchOrdersForDate(dateStr){
+  var from=new Date(dateStr);from.setHours(0,0,0,0);
+  var to=new Date(dateStr);to.setHours(23,59,59,999);
+  var res=await sb.from("orders").select("*").gte("created_at",from.toISOString()).lte("created_at",to.toISOString()).order("created_at",{ascending:true});
+  if(!res.data)return[];
+  var formatted=[];
+  for(var i=0;i<res.data.length;i++){
+    var o=res.data[i];
+    var ir=await sb.from("order_items").select("*").eq("order_id",o.id);
+    formatted.push({id:o.id,room:o.room_number,guestName:o.guest_name,guestPhone:o.guest_phone,instructions:o.instructions||"",subtotal:Number(o.subtotal),couponDiscount:Number(o.coupon_discount||0),couponCode:o.coupon_code,payNowDiscount:Number(o.pay_now_discount||0),total:Number(o.total),paymentMethod:o.payment_method,payMode:o.pay_mode,orderType:o.order_type,status:o.order_status,collectionSource:o.collection_source||null,collectedBy:o.collected_by||null,settlementStatus:o.settlement_status||null,settlementDate:o.settlement_date||null,time:new Date(o.created_at),items:(ir.data||[]).map(function(x){return{name:x.item_name,qty:x.quantity,price:Number(x.unit_price)}})});
+  }
+  return formatted;
+}
+function DateFilterBar(props){
+  // props: viewDate, setViewDate, loading, isToday, label (color string)
+  var col=props.label||"#c8a44e";
+  return h("div",{style:{display:"flex",alignItems:"center",gap:6,marginBottom:10,background:"#111318",borderRadius:8,padding:"6px 10px",border:"1px solid #1a1f2e"}},
+    h("div",{style:{fontSize:8,color:"#6b7280",letterSpacing:1,whiteSpace:"nowrap"}},"VIEW DATE"),
+    h("input",{type:"date",value:props.viewDate,max:todayStr(),onChange:function(e){props.setViewDate(e.target.value)},style:{background:"#0e0f15",border:"1px solid #2a2a3a",borderRadius:5,padding:"4px 8px",fontSize:11,color:"#f2ede4",outline:"none",flex:1}}),
+    !props.isToday?h("button",{onClick:function(){props.setViewDate(todayStr())},style:{background:col,color:"#08090d",border:"none",padding:"4px 10px",borderRadius:5,fontWeight:800,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}},"Today"):h("span",{style:{fontSize:9,color:"#4ade80",fontWeight:700,whiteSpace:"nowrap"}},"● LIVE"),
+    props.loading?h("span",{style:{fontSize:9,color:"#6b7280"}},"..."):null
+  );
+}
+
 // === PRINT ===
 function openPrint(html){var w=window.open("","_blank","width=300,height=500");if(!w)return;w.document.write(html);w.document.close();setTimeout(function(){w.print()},400)}
 function kotHtml(o){var items=o.items.map(function(it){return"<tr><td style='font-size:14px;padding:2px 0'>"+it.name+"</td><td style='font-size:14px;font-weight:bold;text-align:right'>x"+it.qty+"</td></tr>"}).join("");return"<html><head><style>body{font-family:monospace;font-size:12px;width:270px;margin:0 auto;padding:8px}.c{text-align:center}.b{font-weight:bold}.ln{border-top:1px dashed #000;margin:5px 0}table{width:100%}</style></head><body><div class='c b' style='font-size:16px'>*** KOT ***</div><div class='ln'></div><div style='display:flex;justify-content:space-between'><span class='b'>"+seat(o.room)+"</span><span>#"+o.id.slice(0,8).toUpperCase()+"</span></div><div>"+o.guestName+" | "+fmt(o.time)+"</div><div class='ln'></div><table>"+items+"</table><div class='ln'></div>"+(o.instructions?"<div class='b'>NOTE: "+o.instructions+"</div><div class='ln'></div>":"")+"<div class='c'>Items: "+o.items.reduce(function(s,i){return s+i.qty},0)+"</div></body></html>"}
@@ -322,11 +348,22 @@ function CashPanel(props){
   var ft=useState("ALL"),filter=ft[0],setFilter=ft[1];
   var pRef=useRef({});
   var cmt=useState(""),closeMsg=cmt[0],setCloseMsg=cmt[1];
+  // Date filter
+  var vd=useState(todayStr()),viewDate=vd[0],setViewDate=vd[1];
+  var dOrd=useState(null),dateOrders=dOrd[0],setDateOrders=dOrd[1];
+  var dLd=useState(false),dateLoading=dLd[0],setDateLoading=dLd[1];
+  var isToday=viewDate===todayStr();
+  var displayOrders=isToday?orders:(dateOrders||[]);
+  useEffect(function(){
+    if(isToday){setDateOrders(null);return}
+    setDateLoading(true);
+    fetchOrdersForDate(viewDate).then(function(r){setDateOrders(r);setDateLoading(false)}).catch(function(){setDateLoading(false)});
+  },[viewDate]);
 
   // Build open tables from orders (no DB dependency!)
   var openTables=useMemo(function(){
     var tableMap={};
-    orders.forEach(function(o){
+    displayOrders.forEach(function(o){
       if(!isTable(o.room))return;
       if(o.collectionSource)return; // already collected = table closed
       var tNum=String(o.room).slice(1);
@@ -337,14 +374,14 @@ function CashPanel(props){
       tableMap[tNum].phone=o.guestPhone;
     });
     return Object.values(tableMap);
-  },[orders]);
+  },[displayOrders]);
 
-  var list=filter==="ALL"?orders:filter==="UNPAID"?orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}):orders.filter(function(o){return o.collectionSource||o.paymentMethod==="PAID"});
-  var cashAmt=orders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
-  var onlineAmt=orders.filter(function(o){return o.payMode==="online"&&o.paymentMethod==="PAID"}).reduce(function(s,o){return s+o.total},0);
-  var recepAmt=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  var pendAmt=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
-  var totalAmt=orders.reduce(function(s,o){return s+o.total},0);
+  var list=filter==="ALL"?displayOrders:filter==="UNPAID"?displayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}):displayOrders.filter(function(o){return o.collectionSource||o.paymentMethod==="PAID"});
+  var cashAmt=displayOrders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
+  var onlineAmt=displayOrders.filter(function(o){return o.payMode==="online"&&o.paymentMethod==="PAID"}).reduce(function(s,o){return s+o.total},0);
+  var recepAmt=displayOrders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var pendAmt=displayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource}).reduce(function(s,o){return s+o.total},0);
+  var totalAmt=displayOrders.reduce(function(s,o){return s+o.total},0);
 
   useEffect(function(){orders.forEach(function(o){if(!pRef.current[o.id]&&o.status==="NEW"){pRef.current[o.id]=true;openPrint(billHtml(o))}})},[orders.length]);
 
@@ -386,6 +423,7 @@ function CashPanel(props){
 
   return h("div",{style:{minHeight:"100vh",background:"#08090d",padding:14}},
     h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:10}},h("h1",{style:{fontSize:20,fontWeight:800,color:"#60a5fa"}},"Cash Counter"),staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null),
+    h(DateFilterBar,{viewDate:viewDate,setViewDate:setViewDate,loading:dateLoading,isToday:isToday,label:"#60a5fa"}),
     h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(85px,1fr))",gap:5,marginBottom:10}},
       [{l:"Total",v:totalAmt,c:"#60a5fa"},{l:"Cash",v:cashAmt,c:"#22c55e"},{l:"Online",v:onlineAmt,c:"#4ade80"},{l:"Reception",v:recepAmt,c:"#8b5cf6"},{l:"Pending",v:pendAmt,c:"#f59e0b"}].map(function(s,i){return h("div",{key:i,style:{background:"#111318",borderRadius:8,padding:8,borderLeft:"3px solid "+s.c}},h("div",{style:{color:"#6b7280",fontSize:7,letterSpacing:1}},s.l),h("div",{style:{color:s.c,fontSize:16,fontWeight:800}},"Rs."+s.v))})
     ),
@@ -458,20 +496,34 @@ function CashPanel(props){
 // === RECEPTION ===
 function Reception(props){
   var orders=props.orders,onCollect=props.onCollect,staff=props.staff;
-  var roomOrd=orders.filter(function(o){return!isTable(o.room)});
+  // Date filter
+  var vd=useState(todayStr()),viewDate=vd[0],setViewDate=vd[1];
+  var dOrd=useState(null),dateOrders=dOrd[0],setDateOrders=dOrd[1];
+  var dLd=useState(false),dateLoading=dLd[0],setDateLoading=dLd[1];
+  var isToday=viewDate===todayStr();
+  var displayOrders=isToday?orders:(dateOrders||[]);
+  useEffect(function(){
+    if(isToday){setDateOrders(null);return}
+    setDateLoading(true);
+    fetchOrdersForDate(viewDate).then(function(r){setDateOrders(r);setDateLoading(false)}).catch(function(){setDateLoading(false)});
+  },[viewDate]);
+
+  var roomOrd=displayOrders.filter(function(o){return!isTable(o.room)});
   var unpaid=roomOrd.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource});
   var collected=roomOrd.filter(function(o){return o.collectionSource==="RECEPTION"});
   var pendT=unpaid.reduce(function(s,o){return s+o.total},0);var collT=collected.reduce(function(s,o){return s+o.total},0);
   var prevC=useRef(unpaid.length);
-  useEffect(function(){if(unpaid.length>prevC.current)startAlarm();prevC.current=unpaid.length},[unpaid.length]);
+  useEffect(function(){if(isToday&&unpaid.length>prevC.current)startAlarm();prevC.current=unpaid.length},[unpaid.length,isToday]);
   return h("div",{style:{minHeight:"100vh",background:"#08090d",padding:14}},
-    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:14}},h("div",null,h("h1",{style:{fontSize:20,fontWeight:800,color:"#8b5cf6"}},"Reception Desk"),h("div",{style:{color:"#6b7280",fontSize:10}},staff?staff.display_name:"")),h("button",{onClick:stopAlarm,style:{background:"#ef444418",color:"#ef4444",border:"1px solid #ef444430",padding:"5px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}},"Stop Alarm")),
+    h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:10}},h("div",null,h("h1",{style:{fontSize:20,fontWeight:800,color:"#8b5cf6"}},"Reception Desk"),h("div",{style:{color:"#6b7280",fontSize:10}},staff?staff.display_name:"")),h("button",{onClick:stopAlarm,style:{background:"#ef444418",color:"#ef4444",border:"1px solid #ef444430",padding:"5px 10px",borderRadius:5,fontSize:9,fontWeight:700,cursor:"pointer"}},"Stop Alarm")),
+    h(DateFilterBar,{viewDate:viewDate,setViewDate:setViewDate,loading:dateLoading,isToday:isToday,label:"#8b5cf6"}),
     h("div",{style:{display:"grid",gridTemplateColumns:"1fr 1fr",gap:6,marginBottom:14}},h("div",{style:{background:"#111318",borderRadius:8,padding:12,borderLeft:"3px solid #f59e0b"}},h("div",{style:{color:"#6b7280",fontSize:8}},"PENDING"),h("div",{style:{color:"#f59e0b",fontSize:22,fontWeight:800}},"Rs."+pendT)),h("div",{style:{background:"#111318",borderRadius:8,padding:12,borderLeft:"3px solid #22c55e"}},h("div",{style:{color:"#6b7280",fontSize:8}},"COLLECTED"),h("div",{style:{color:"#22c55e",fontSize:22,fontWeight:800}},"Rs."+collT))),
-    unpaid.length>0?h("div",{style:{background:"#f59e0b15",border:"2px solid #f59e0b40",borderRadius:10,padding:"8px",marginBottom:12,animation:"pulse2 1.5s infinite",textAlign:"center"}},h("div",{style:{fontSize:14,fontWeight:800,color:"#f59e0b"}},unpaid.length+" ROOM BILL"+(unpaid.length>1?"S":"")+" PENDING")):h("div",{style:{textAlign:"center",padding:14,color:"#4ade80",fontWeight:600}},"All bills collected!"),
+    unpaid.length>0?h("div",{style:{background:"#f59e0b15",border:"2px solid #f59e0b40",borderRadius:10,padding:"8px",marginBottom:12,animation:isToday?"pulse2 1.5s infinite":undefined,textAlign:"center"}},h("div",{style:{fontSize:14,fontWeight:800,color:"#f59e0b"}},unpaid.length+" ROOM BILL"+(unpaid.length>1?"S":"")+" PENDING")):h("div",{style:{textAlign:"center",padding:14,color:"#4ade80",fontWeight:600}},"All bills collected!"),
     unpaid.map(function(o){return h("div",{key:o.id,style:{background:"#111318",borderRadius:8,border:"1px solid #f59e0b22",marginBottom:8}},
       h("div",{style:{display:"flex",justifyContent:"space-between",padding:"8px 10px",background:"#f59e0b08"}},h("div",null,h("span",{style:{fontWeight:800,fontSize:14,color:"#f59e0b"}},"Room "+o.room),h("span",{style:{color:"#6b7280",fontSize:9,marginLeft:5}},o.guestName)),h("span",{style:{fontWeight:800,fontSize:16,color:"#f59e0b"}},"Rs."+o.total)),
       h("div",{style:{padding:"4px 10px"}},o.items.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:11,padding:"2px 0"}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#c8a44e"}},"Rs."+it.price*it.qty))})),
-      h("div",{style:{padding:"6px 10px",display:"flex",gap:4}},h("button",{onClick:function(){openPrint(recSlipHtml(o))},style:{background:"#3b82f6",color:"#fff",border:"none",padding:"8px 12px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Print"),h("button",{onClick:function(){onCollect(o.id,"RECEPTION",staff?staff.display_name:"Reception");stopAlarm()},style:{flex:1,background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"8px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Collected Rs."+o.total))
+      isToday?h("div",{style:{padding:"6px 10px",display:"flex",gap:4}},h("button",{onClick:function(){openPrint(recSlipHtml(o))},style:{background:"#3b82f6",color:"#fff",border:"none",padding:"8px 12px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Print"),h("button",{onClick:function(){onCollect(o.id,"RECEPTION",staff?staff.display_name:"Reception");stopAlarm()},style:{flex:1,background:"linear-gradient(135deg,#22c55e,#16a34a)",color:"#fff",border:"none",padding:"8px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Collected Rs."+o.total)):
+      h("div",{style:{padding:"6px 10px"}},h("button",{onClick:function(){openPrint(recSlipHtml(o))},style:{background:"#3b82f6",color:"#fff",border:"none",padding:"8px 12px",borderRadius:6,fontWeight:700,fontSize:11,cursor:"pointer"}},"Print"))
     )}),
     collected.length>0?h("div",null,h("div",{style:{fontSize:13,fontWeight:700,color:"#22c55e",margin:"16px 0 8px"}},"Collected ("+collected.length+" | Rs."+collT+")"),collected.map(function(o){return h("div",{key:o.id,style:{background:"#111318",borderRadius:6,padding:"6px 10px",marginBottom:3,border:"1px solid #22c55e12",display:"flex",justifyContent:"space-between"}},h("span",{style:{fontSize:11,fontWeight:600}},"Room "+o.room+" | "+o.guestName),h("span",{style:{color:"#22c55e",fontWeight:800,fontSize:13}},"Rs."+o.total))})):null
   );
@@ -481,13 +533,25 @@ function Admin(props){
   var orders=props.orders,staff=props.staff,avail=props.avail,setAvail=props.setAvail,collectPayment=props.collectPayment,setOrders=props.setOrders,storeOpen=props.storeOpen,setStoreOpen=props.setStoreOpen;
   var tb=useState("dash"),tab=tb[0],setTab=tb[1];
   var MD=props.menu||MENU;
-  var totalSale=orders.reduce(function(s,o){return s+o.total},0);
-  var cashAmt=orders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
-  var onlineAmt=orders.filter(function(o){return o.payMode==="online"}).reduce(function(s,o){return s+o.total},0);
-  var recepAmt=orders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
-  var pendRecep=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&!isTable(o.room)}).reduce(function(s,o){return s+o.total},0);
-  var creditAmt=orders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&isTable(o.room)}).reduce(function(s,o){return s+o.total},0);
-  var topItems=useMemo(function(){var m={};orders.forEach(function(o){o.items.forEach(function(i){m[i.name]=(m[i.name]||0)+i.qty})});return Object.entries(m).sort(function(a,b){return b[1]-a[1]}).slice(0,8)},[orders]);
+  // Date filter
+  var vd=useState(todayStr()),viewDate=vd[0],setViewDate=vd[1];
+  var dOrd=useState(null),dateOrders=dOrd[0],setDateOrders=dOrd[1];
+  var dLd=useState(false),dateLoading=dLd[0],setDateLoading=dLd[1];
+  var isToday=viewDate===todayStr();
+  var displayOrders=isToday?orders:(dateOrders||[]);
+  useEffect(function(){
+    if(isToday){setDateOrders(null);return}
+    setDateLoading(true);
+    fetchOrdersForDate(viewDate).then(function(r){setDateOrders(r);setDateLoading(false)}).catch(function(){setDateLoading(false)});
+  },[viewDate]);
+
+  var totalSale=displayOrders.reduce(function(s,o){return s+o.total},0);
+  var cashAmt=displayOrders.filter(function(o){return o.collectionSource==="RESTAURANT"}).reduce(function(s,o){return s+o.total},0);
+  var onlineAmt=displayOrders.filter(function(o){return o.payMode==="online"}).reduce(function(s,o){return s+o.total},0);
+  var recepAmt=displayOrders.filter(function(o){return o.collectionSource==="RECEPTION"}).reduce(function(s,o){return s+o.total},0);
+  var pendRecep=displayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&!isTable(o.room)}).reduce(function(s,o){return s+o.total},0);
+  var creditAmt=displayOrders.filter(function(o){return o.paymentMethod==="PAY_LATER"&&!o.collectionSource&&isTable(o.room)}).reduce(function(s,o){return s+o.total},0);
+  var topItems=useMemo(function(){var m={};displayOrders.forEach(function(o){o.items.forEach(function(i){m[i.name]=(m[i.name]||0)+i.qty})});return Object.entries(m).sort(function(a,b){return b[1]-a[1]}).slice(0,8)},[displayOrders]);
   var tabs=[{id:"dash",l:"Dashboard"},{id:"orders",l:"Orders"},{id:"settle",l:"Settlement"},{id:"reports",l:"Reports"},{id:"menu",l:"Menu"},{id:"coupons",l:"Coupons"}];
 
   return h("div",{style:{minHeight:"100vh",background:"#08090d",padding:14}},
@@ -503,20 +567,21 @@ function Admin(props){
         staff?h("div",{style:{fontSize:9,color:"#4ade80"}},staff.display_name):null
       )
     ),
+    (tab==="dash"||tab==="orders")?h(DateFilterBar,{viewDate:viewDate,setViewDate:setViewDate,loading:dateLoading,isToday:isToday,label:"#c8a44e"}):null,
     h("div",{style:{display:"flex",gap:3,marginBottom:14,overflowX:"auto"}},tabs.map(function(t){return h("button",{key:t.id,onClick:function(){setTab(t.id)},style:{background:tab===t.id?"#c8a44e":"#111318",color:tab===t.id?"#000":"#9ca3af",border:"none",padding:"6px 10px",borderRadius:6,fontWeight:700,fontSize:9,cursor:"pointer",whiteSpace:"nowrap"}},t.l)})),
 
     tab==="dash"?h("div",null,
       h("div",{style:{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(100px,1fr))",gap:5,marginBottom:14}},
-        [{l:"Total Sale",v:"Rs."+totalSale,c:"#c8a44e"},{l:"Cash",v:"Rs."+cashAmt,c:"#22c55e"},{l:"Online",v:"Rs."+onlineAmt,c:"#4ade80"},{l:"Reception",v:"Rs."+recepAmt,c:"#8b5cf6"},{l:"Recep Due",v:"Rs."+pendRecep,c:"#f59e0b"},{l:"Credit Due",v:"Rs."+creditAmt,c:"#ef4444"},{l:"Orders",v:orders.length,c:"#60a5fa"}].map(function(s,i){return h("div",{key:i,style:{background:"#111318",borderRadius:8,padding:10,borderLeft:"3px solid "+s.c}},h("div",{style:{color:"#6b7280",fontSize:7,letterSpacing:1}},s.l),h("div",{style:{fontSize:18,fontWeight:800,color:s.c}},s.v))})
+        [{l:"Total Sale",v:"Rs."+totalSale,c:"#c8a44e"},{l:"Cash",v:"Rs."+cashAmt,c:"#22c55e"},{l:"Online",v:"Rs."+onlineAmt,c:"#4ade80"},{l:"Reception",v:"Rs."+recepAmt,c:"#8b5cf6"},{l:"Recep Due",v:"Rs."+pendRecep,c:"#f59e0b"},{l:"Credit Due",v:"Rs."+creditAmt,c:"#ef4444"},{l:"Orders",v:displayOrders.length,c:"#60a5fa"}].map(function(s,i){return h("div",{key:i,style:{background:"#111318",borderRadius:8,padding:10,borderLeft:"3px solid "+s.c}},h("div",{style:{color:"#6b7280",fontSize:7,letterSpacing:1}},s.l),h("div",{style:{fontSize:18,fontWeight:800,color:s.c}},s.v))})
       ),
       h("div",{style:{background:"#111318",borderRadius:10,padding:12}},h("div",{style:{fontSize:13,fontWeight:700,color:"#c8a44e",marginBottom:8}},"Top Sellers"),topItems.map(function(e,i){return h("div",{key:i,style:{display:"flex",gap:6,padding:"3px 0",borderBottom:"1px solid #1a1f2e"}},h("span",{style:{fontWeight:800,fontSize:11,color:"#c8a44e",width:18}},"#"+(i+1)),h("span",{style:{flex:1,fontSize:11}},e[0]),h("span",{style:{background:"#c8a44e12",color:"#c8a44e",fontWeight:700,padding:"2px 6px",borderRadius:4,fontSize:10}},e[1]))}),topItems.length===0?h("div",{style:{color:"#4b5563",textAlign:"center",padding:12}},"No orders yet"):null)
     ):null,
 
     tab==="orders"?h("div",null,
-      orders.slice().reverse().map(function(o){return h("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:10,marginBottom:5,border:"1px solid #1a1f2e"}},
+      displayOrders.slice().reverse().map(function(o){return h("div",{key:o.id,style:{background:"#111318",borderRadius:8,padding:10,marginBottom:5,border:"1px solid #1a1f2e"}},
         h("div",{style:{display:"flex",justifyContent:"space-between",marginBottom:4}},h("span",{style:{fontWeight:800,fontSize:12}},seat(o.room)+" ",h("span",{style:{color:"#6b7280",fontWeight:400,fontSize:9}},o.guestName+" | "+fmt(o.time))),h("div",{style:{display:"flex",gap:2}},h("span",{style:{background:o.collectionSource?"#22c55e":"#f59e0b",color:"#000",fontSize:7,fontWeight:800,padding:"2px 5px",borderRadius:20}},o.collectionSource||"PENDING"),h("span",{style:{background:"#3b82f618",color:"#3b82f6",fontSize:7,padding:"2px 5px",borderRadius:20}},o.status))),
         o.items.map(function(it,i){return h("div",{key:i,style:{display:"flex",justifyContent:"space-between",fontSize:10}},h("span",null,it.name+" x"+it.qty),h("span",{style:{color:"#c8a44e"}},"Rs."+it.price*it.qty))}),
-        h("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:3,paddingTop:3,display:"flex",justifyContent:"space-between"}},h("span",{style:{fontWeight:800,fontSize:13,color:"#c8a44e"}},"Rs."+o.total),!o.collectionSource&&o.paymentMethod==="PAY_LATER"?h("button",{onClick:function(){collectPayment(o.id,"RESTAURANT",staff?staff.display_name:"Admin")},style:{background:"#22c55e",color:"#000",border:"none",padding:"3px 8px",borderRadius:4,fontWeight:700,fontSize:8,cursor:"pointer"}},"Collected"):null)
+        h("div",{style:{borderTop:"1px solid #1a1f2e",marginTop:3,paddingTop:3,display:"flex",justifyContent:"space-between"}},h("span",{style:{fontWeight:800,fontSize:13,color:"#c8a44e"}},"Rs."+o.total),isToday&&!o.collectionSource&&o.paymentMethod==="PAY_LATER"?h("button",{onClick:function(){collectPayment(o.id,"RESTAURANT",staff?staff.display_name:"Admin")},style:{background:"#22c55e",color:"#000",border:"none",padding:"3px 8px",borderRadius:4,fontWeight:700,fontSize:8,cursor:"pointer"}},"Collected"):null)
       )})
     ):null,
 
